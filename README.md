@@ -1,7 +1,7 @@
 # Sakura Flow 🌸 (Moonstone Fork)
 An optimized desktop tray application for managing [zapret](https://github.com) on Windows.
 
-!(images/interface.png)
+![alt text](images/interface.png)
 
 ## Key Enhancements in Sakura Flow:
 - **Redesigned UI**: Modern "Sakura" dark-pink theme for the system tray menu.
