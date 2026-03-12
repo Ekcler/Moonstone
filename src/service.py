@@ -1,172 +1,108 @@
-"""Windows service management functions."""
+"""Windows service management functions for Sakura Flow."""
 import subprocess
 import re
 import sys
 import logging
 from pathlib import Path
 
-# Handle both relative and absolute imports
 try:
     from .config import SERVICE_NAME, BAT_DIR, ENCODING
 except ImportError:
     from src.config import SERVICE_NAME, BAT_DIR, ENCODING
 
-
 def run_cmd(cmd):
-    """Execute a shell command and log the results."""
+    """Выполнение команды оболочки."""
     logging.info(f"Выполнение команды: {cmd}")
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, encoding=ENCODING)
-        if result.stdout:
-            logging.info(f"Вывод команды: {result.stdout.strip()}")
-        if result.stderr:
-            logging.error(f"Ошибка команды: {result.stderr.strip()}")
         return result
     except Exception as e:
-        logging.error(f"Исключение при выполнении команды: {e}")
+        logging.error(f"Ошибка команды: {e}")
         return None
-
 
 def service_exists():
-    """Check if the service exists."""
+    """Проверка существования службы."""
     result = run_cmd(f'sc.exe query "{SERVICE_NAME}"')
-    if result and (SERVICE_NAME in result.stdout):
-        logging.info(f"Служба '{SERVICE_NAME}' существует.")
-        return True
-    logging.info(f"Служба '{SERVICE_NAME}' не существует.")
-    return False
-
+    return result and (SERVICE_NAME in result.stdout)
 
 def get_service_display_name():
-    """Get the display name of the service."""
-    if not service_exists():
-        return None
+    """Получение имени службы."""
+    if not service_exists(): return None
     result = run_cmd(f'sc.exe qc "{SERVICE_NAME}"')
     if result and result.returncode == 0:
         match = re.search(r'DISPLAY_NAME\s*:\s*(.+)', result.stdout)
-        if match:
-            display_name = match.group(1).strip()
-            logging.info(f"Получено отображаемое имя службы: {display_name}")
-            return display_name
-    logging.error("Не удалось получить отображаемое имя службы")
+        if match: return match.group(1).strip()
     return None
 
-
 def parse_bat_file(batch_path):
-    """Parse a batch file to extract executable and arguments."""
-    logging.info(f"Чтение .bat файла: {batch_path}")
-    if not batch_path.exists():
-        logging.error(f"Файл .bat не найден: {batch_path}")
-        sys.exit(f"Batch file not found: {batch_path}")
-    try:
-        with open(batch_path, 'r', encoding=ENCODING) as f:
-            bat_content = f.read()
-    except Exception as e:
-        logging.error(f"Ошибка при чтении .bat файла: {e}")
-        sys.exit(f"Failed to read batch file: {e}")
-    
-    bin_match = re.search(r'set\s+"?BIN=%~dp0([^"\s]*)"?', bat_content)
-    lists_match = re.search(r'set\s+"?LISTS=%~dp0([^"\s]*)"?', bat_content)
-    configs_match = re.search(r'set\s+"?CONFIGS=%~dp0([^"\s]*)"?', bat_content)
-    bin_path = Path(batch_path.parent / (bin_match.group(1) if bin_match else "bundled"))
-    lists_path = Path(batch_path.parent / (lists_match.group(1) if lists_match else "lists"))
-    configs_path = Path(batch_path.parent / (configs_match.group(1) if configs_match else "configs"))
-    logging.info(f"BIN путь: {bin_path}")
-    logging.info(f"LISTS путь: {lists_path}")
-    logging.info(f"CONFIGS путь: {configs_path}")
-    
+    """Парсинг .bat файла с подстановкой портов Rocket League."""
+    logging.info(f"Разбор стратегии: {batch_path}")
+    with open(batch_path, 'r', encoding=ENCODING) as f:
+        bat_content = f.read()
+
+    base_zapret = batch_path.parent
+    bin_dir = base_zapret / "bin"
+    lists_dir = base_zapret / "lists"
+    configs_dir = base_zapret / "configs"
+
+    # 1. Вшиваем порты Rocket League
+    game_ports = "1-65535"
+    bat_content = bat_content.replace("%GameFilter%", game_ports)
+
+    # 2. Извлекаем команду winws.exe
     start_match = re.search(r'start\s+"[^"]*"\s+/min\s+"([^"]+)"\s+(.+)', bat_content, re.DOTALL)
     if not start_match:
-        logging.error("Не удалось разобрать команду winws.exe из .bat файла")
-        sys.exit("Could not parse winws.exe command from batch file")
-    
-    executable = start_match.group(1).strip()
+        sys.exit("Ошибка: winws.exe не найден в батнике")
+
+    executable = str(bin_dir / "winws.exe")
     args = start_match.group(2).strip().replace('^', '').replace('\n', ' ').strip()
-    executable = executable.replace("%BIN%", str(bin_path)+"\\").replace("%LISTS%", str(lists_path)+"\\").replace("%CONFIGS%", str(configs_path)+"\\")
-    args = args.replace("%BIN%", str(bin_path)+"\\").replace("%LISTS%", str(lists_path)+"\\").replace("%CONFIGS%", str(configs_path)+"\\")
-    logging.info(f"EXECUTABLE: {executable}")
-    logging.info(f"ARGS: {args}")
+
+    # 3. Заменяем макросы путей
+    replacements = {
+        "%BIN%": str(bin_dir) + "\\",
+        "%LISTS%": str(lists_dir) + "\\",
+        "%CONFIGS%": str(configs_dir) + "\\",
+        "%~dp0": str(base_zapret) + "\\"
+    }
+
+    for macro, real_path in replacements.items():
+        args = args.replace(macro, real_path)
+        executable = executable.replace(macro, real_path)
+
+    # Очистка путей от двойных слешей
+    args = args.replace("\\\\", "\\")
     
-    if not Path(executable).exists():
-        logging.error(f"Исполняемый файл не найден: {executable}")
-        sys.exit(f"Executable not found: {executable}")
-    
+    logging.info(f"Команда готова. EXE: {executable}")
     return executable, args
 
-
 def create_service(batch_path, display_version):
-    """Create a Windows service from a batch file."""
+    """Создание службы."""
     executable, args = parse_bat_file(batch_path)
-    service_display = f"Moonstone Zapret DPI Bypass version[{display_version}]"
+    service_display = f"Sakura Flow DPI Bypass version[{display_version}]"
+    quoted_exe = f'"{executable}"' if ' ' in str(executable) else str(executable)
+    bin_path_value = f'{quoted_exe} {args}'
     
-    # Properly quote the executable path if it contains spaces
-    # For sc.exe binPath, the executable must be quoted if it has spaces
-    if ' ' in str(executable):
-        quoted_executable = f'"{executable}"'
-    else:
-        quoted_executable = str(executable)
-    
-    # Construct the full binPath - the entire value needs to be quoted
-    # and the executable within it should also be quoted if it has spaces
-    bin_path_value = f'{quoted_executable} {args}'
-    
-    # For sc.exe, use subprocess.run directly without shell to avoid quote interpretation issues
-    # sc.exe expects parameters like "binPath= value" where value can contain spaces
     cmd_args = [
-        'sc.exe', 'create', SERVICE_NAME,
-        'start=', 'auto',
-        'displayname=', service_display,
-        'binPath=', bin_path_value
+        'sc.exe', 'create', SERVICE_NAME, 'start=', 'auto',
+        'displayname=', service_display, 'binPath=', bin_path_value
     ]
-    
-    logging.info(f"Создание службы '{SERVICE_NAME}' с отображаемым именем '{service_display}'...")
-    logging.info(f"Выполнение команды: {' '.join(cmd_args)}")
-    try:
-        result = subprocess.run(cmd_args, capture_output=True, text=True, encoding=ENCODING)
-        if result.stdout:
-            logging.info(f"Вывод команды: {result.stdout.strip()}")
-        if result.stderr:
-            logging.error(f"Ошибка команды: {result.stderr.strip()}")
-        if result.returncode != 0:
-            logging.error(f"Не удалось создать службу: {result.stderr}")
-            sys.exit(f"Failed to create service: {result.stderr}")
-    except Exception as e:
-        logging.error(f"Исключение при выполнении команды: {e}")
-        sys.exit(f"Failed to create service: {e}")
-    
-    if service_exists():
-        logging.info(f"Служба '{SERVICE_NAME}' успешно создана.")
-    else:
-        logging.error(f"Служба '{SERVICE_NAME}' не была создана.")
-        sys.exit(f"Service '{SERVICE_NAME}' was not created.")
-
+    subprocess.run(cmd_args, capture_output=True, text=True, encoding=ENCODING)
 
 def start_service(batch_path, display_version):
-    """Start the service, recreating it if necessary."""
+    """Запуск службы."""
     if service_exists():
-        logging.info("Служба существует, остановка и удаление для пересоздания с новым .bat...")
         stop_service()
         delete_service()
     create_service(batch_path, display_version)
-    logging.info(f"Запуск службы '{SERVICE_NAME}'...")
-    result = run_cmd(f'sc.exe start "{SERVICE_NAME}"')
-    if result and result.returncode != 0:
-        logging.error(f"Не удалось запустить службу: {result.stderr}")
-
+    run_cmd(f'sc.exe start "{SERVICE_NAME}"')
 
 def stop_service():
-    """Stop the service."""
+    """Остановка."""
     if service_exists():
-        logging.info(f"Остановка службы '{SERVICE_NAME}'...")
         run_cmd(f'sc.exe stop "{SERVICE_NAME}"')
-        # Дополнительно останавливаем Windivert если вдруг запущена
-        logging.info(f"Остановка службы 'WinDivert'...")
-        run_cmd(f'sc.exe stop "WinDivert"')
-
+        run_cmd('sc.exe stop "WinDivert"')
 
 def delete_service():
-    """Delete the service."""
+    """Удаление."""
     if service_exists():
-        logging.info(f"Удаление службы '{SERVICE_NAME}'...")
         run_cmd(f'sc.exe delete "{SERVICE_NAME}"')
-

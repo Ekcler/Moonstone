@@ -1,27 +1,26 @@
-"""Configuration constants for Moonstone application."""
+"""Configuration constants for Sakura Flow application."""
 import sys
+import os
 from pathlib import Path
 
-# Service and Task names
-SERVICE_NAME = "MoonstoneZapret"
-TASK_NAME = "MoonstoneAutostart"
+# Названия
+SERVICE_NAME = "SakuraFlowService"
+TASK_NAME = "SakuraFlowAutostart"
 
-# Base directory detection (works for both frozen and development)
+# КОРРЕКТНОЕ ОПРЕДЕЛЕНИЕ ПУТИ
 if getattr(sys, 'frozen', False):
-    BASE_DIR = Path(sys._MEIPASS)
+    # Если запущен EXE, берем путь к папке, где лежит сам EXE
+    BASE_DIR = Path(sys.executable).resolve().parent
 else:
+    # Если запущен скрипт, берем корень проекта
     BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Paths
+# Пути к файлам (теперь они будут искаться рядом с SakuraFlow.exe)
 ICON_PATH = BASE_DIR / "icons" / "moonstone.ico"
 CHECK_ICON_PATH = BASE_DIR / "icons" / "check.ico"
 BAT_DIR = BASE_DIR / "zapret"
-BUNDLED_DIR = BAT_DIR / "bundled"
-BACKUP_DIR = BAT_DIR / "bundled_backup"
 LOG_FILE = BASE_DIR / "moonstone.log"
 STATE_FILE = BASE_DIR / "moonstone_state.json"
-GITHUB_RELEASES_API = "https://api.github.com/repos/bol-van/zapret/releases/latest"
 
-# Encoding
-ENCODING = "cp866"
-
+# Кодировка для Windows батников
+ENCODING = "cp866" 

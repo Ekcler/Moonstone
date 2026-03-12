@@ -1,25 +1,21 @@
-"""Main entry point for Moonstone application."""
+"""Main entry point for Sakura Flow application."""
 import sys
 import logging
 from pathlib import Path
 
-# Handle both direct execution and module execution
+# Обработка путей для запуска
 if __name__ == "__main__":
-    # Running as script - ensure parent directory is in path
     file_path = Path(__file__).resolve()
     parent_dir = file_path.parent.parent
     if str(parent_dir) not in sys.path:
         sys.path.insert(0, str(parent_dir))
-    # Force package initialization by importing the package
     try:
         import src
         sys.modules['src'] = src
     except:
         pass
-    # Use absolute imports
     from src import admin, ui, config
 else:
-    # Running as module - use relative imports
     from . import admin, ui, config
 
 # Настройка логирования
@@ -31,22 +27,25 @@ logging.basicConfig(
     encoding='utf-8'
 )
 
-
 def main():
-    """Main entry point."""
-    logging.info("Начало выполнения скрипта")
+    """Точка входа в приложение."""
+    logging.info("Запуск Sakura Flow")
     
-    # Check for admin privileges
+    # Проверка прав администратора
     if not admin.is_admin():
-        logging.info("Требуются права администратора, перезапуск...")
+        logging.info("Запрос прав администратора...")
         admin.run_as_admin()
     
-    logging.info("Вызов функции main()")
+    # --- ВОТ ТУТ ИЗМЕНЕНИЕ ---
+    # Получаем все .bat файлы, кроме service.bat (чтобы он не мозолил глаза в меню)
+    # Берем все .bat, кроме вспомогательных service.bat и самого general.bat
+    bat_files = [
+        f for f in config.BAT_DIR.glob("*.bat") 
+        if f.name.lower() not in ["service.bat", "general.bat"]
+    ]
+
     
-    # Get batch files
-    bat_files = list(config.BAT_DIR.glob("*.bat"))
-    
-    # Create and run tray application
+    # Запуск интерфейса
     sys.exit(ui.create_tray_app(bat_files))
 
 if __name__ == "__main__":
