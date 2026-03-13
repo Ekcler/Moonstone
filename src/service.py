@@ -35,7 +35,7 @@ def get_service_display_name():
     return None
 
 def parse_bat_file(batch_path):
-    """Парсинг .bat файла с подстановкой портов Rocket League."""
+    """Парсинг .bat файла с лимитами и портами Rocket League."""
     logging.info(f"Разбор стратегии: {batch_path}")
     with open(batch_path, 'r', encoding=ENCODING) as f:
         bat_content = f.read()
@@ -45,11 +45,10 @@ def parse_bat_file(batch_path):
     lists_dir = base_zapret / "lists"
     configs_dir = base_zapret / "configs"
 
-    # 1. Вшиваем порты Rocket League
-    game_ports = "1-65535"
+    # Оптимизированные порты для Rocket League + Steam Voice
+    game_ports = "443,19294-19344,50000-50100"
     bat_content = bat_content.replace("%GameFilter%", game_ports)
 
-    # 2. Извлекаем команду winws.exe
     start_match = re.search(r'start\s+"[^"]*"\s+/min\s+"([^"]+)"\s+(.+)', bat_content, re.DOTALL)
     if not start_match:
         sys.exit("Ошибка: winws.exe не найден в батнике")
@@ -57,7 +56,9 @@ def parse_bat_file(batch_path):
     executable = str(bin_dir / "winws.exe")
     args = start_match.group(2).strip().replace('^', '').replace('\n', ' ').strip()
 
-    # 3. Заменяем макросы путей
+    # ФИКС ЛАГОВ: Ограничение очередей и окна сканирования
+    args = f"--qnum=200 --wssize=128 {args}"
+
     replacements = {
         "%BIN%": str(bin_dir) + "\\",
         "%LISTS%": str(lists_dir) + "\\",
@@ -69,27 +70,18 @@ def parse_bat_file(batch_path):
         args = args.replace(macro, real_path)
         executable = executable.replace(macro, real_path)
 
-    # Очистка путей от двойных слешей
     args = args.replace("\\\\", "\\")
-    
-    logging.info(f"Команда готова. EXE: {executable}")
     return executable, args
 
 def create_service(batch_path, display_version):
-    """Создание службы."""
     executable, args = parse_bat_file(batch_path)
     service_display = f"Sakura Flow DPI Bypass version[{display_version}]"
     quoted_exe = f'"{executable}"' if ' ' in str(executable) else str(executable)
     bin_path_value = f'{quoted_exe} {args}'
-    
-    cmd_args = [
-        'sc.exe', 'create', SERVICE_NAME, 'start=', 'auto',
-        'displayname=', service_display, 'binPath=', bin_path_value
-    ]
+    cmd_args = ['sc.exe', 'create', SERVICE_NAME, 'start=', 'auto', 'displayname=', service_display, 'binPath=', bin_path_value]
     subprocess.run(cmd_args, capture_output=True, text=True, encoding=ENCODING)
 
 def start_service(batch_path, display_version):
-    """Запуск службы."""
     if service_exists():
         stop_service()
         delete_service()
@@ -97,12 +89,10 @@ def start_service(batch_path, display_version):
     run_cmd(f'sc.exe start "{SERVICE_NAME}"')
 
 def stop_service():
-    """Остановка."""
     if service_exists():
         run_cmd(f'sc.exe stop "{SERVICE_NAME}"')
         run_cmd('sc.exe stop "WinDivert"')
 
 def delete_service():
-    """Удаление."""
     if service_exists():
         run_cmd(f'sc.exe delete "{SERVICE_NAME}"')
