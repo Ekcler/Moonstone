@@ -10,7 +10,7 @@ An optimized desktop tray application for managing [zapret](https://github.com) 
 - **Network Tools**: Built-in Ping, Tracert and Live Traffic Monitor (KB/s).
 - **DNS Optimizer**: Smart DNS tester with one-click apply to Windows settings.
 - **Blocklist Editor**: Manage your domains directly from the app.
-- **Gaming Support**: Automatic UDP port injection for stable connectivity in games (Rocket League, etc.) with low ping (18ms).
+- 
 - **Portable Mode**: The compiled `.exe` correctly locates `zapret` and `icons` folders.
 
 ## Quick Start
