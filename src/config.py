@@ -19,8 +19,11 @@ else:
 ICON_PATH = BASE_DIR / "icons" / "moonstone.ico"
 CHECK_ICON_PATH = BASE_DIR / "icons" / "check.ico"
 BAT_DIR = BASE_DIR / "zapret"
-LOG_FILE = BASE_DIR / "moonstone.log"
-STATE_FILE = BASE_DIR / "moonstone_state.json"
+
+# --- ПЕРЕИМЕНОВЫВАЕМ ТУТ ---
+LOG_FILE = BASE_DIR / "sakura_flow.log"
+STATE_FILE = BASE_DIR / "sakura_state.json"
+# ---------------------------
 
 # Кодировка для Windows батников
-ENCODING = "cp866" 
+ENCODING = "cp866"
