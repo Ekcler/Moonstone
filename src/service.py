@@ -3,6 +3,7 @@ import subprocess
 import re
 import sys
 import logging
+import os
 from pathlib import Path
 
 # Импортируем настройки из нашего исправленного конфига
@@ -36,51 +37,57 @@ def get_service_display_name():
     return None
 
 def parse_bat_file(batch_path):
-    """Парсинг .bat файла с надежными путями и всеми портами."""
+    """Ультра-парсинг: маскируем Telegram под Microsoft Windows Update."""
     logging.info(f"Разбор стратегии: {batch_path}")
     with open(batch_path, 'r', encoding=ENCODING) as f:
         bat_content = f.read()
 
-    # Берем корень папки zapret из конфига
     base_zapret = BAT_DIR 
     bin_dir = base_zapret / "bin"
     lists_dir = base_zapret / "lists"
-    configs_dir = base_zapret / "configs"
 
-    # ВОЗВРАЩАЕМ ВСЕ ПОРТЫ, ЧТОБЫ СТРАТЕГИЯ РАБОТАЛА НА 100%
-    game_ports = "1-65535"
-    bat_content = bat_content.replace("%GameFilter%", game_ports)
+    # СТРАТЕГИЯ: На портах ТГ прикидываемся Майкрософтом (используем твой .bin файл)
+    # Это самый мощный способ пробить "умные" блокировки в 2026-м
+    ghost_rules = (
+        f"--filter-tcp=5222,8888,8443 --dpi-desync=fake,multisplit "
+        f"--dpi-desync-split-pos=1 --dpi-desync-fooling=md5sig --dpi-desync-repeats=6 "
+        f"--dpi-desync-split-seqovl-pattern=\"{bin_dir}\\tls_microsoft.bin\" "
+        f"--dpi-desync-fake-tls-mod=rnd,dupsid,sni=wcpstatic.microsoft.com --new "
+    )
 
-    # Ищем команду запуска winws.exe
+    # Ищем основную команду запуска из батника
     start_match = re.search(r'start\s+"[^"]*"\s+/min\s+"([^"]+)"\s+(.+)', bat_content, re.DOTALL)
-    if not start_match:
-        sys.exit("Ошибка: winws.exe не найден в батнике")
-
     executable = str(bin_dir / "winws.exe")
     args = start_match.group(2).strip().replace('^', '').replace('\n', ' ').strip()
 
-    # Заменяем макросы путей на реальные пути к папкам
+    # Принудительно добавляем порты ТГ в общий перехват драйвера
+    if "--wf-tcp=" in args:
+        args = args.replace("--wf-tcp=", "--wf-tcp=5222,8888,")
+    else:
+        args = "--wf-tcp=80,443,5222,8888 " + args
+
+    # Склеиваем: Правила-призраки для ТГ + Твой рабочий конфиг для Ютуба
+    final_args = ghost_rules + args
+
+    # Подстановка путей
     replacements = {
         "%BIN%": str(bin_dir) + "\\",
         "%LISTS%": str(lists_dir) + "\\",
-        "%CONFIGS%": str(configs_dir) + "\\",
-        "%~dp0": str(base_zapret) + "\\"
+        "%~dp0": str(base_zapret) + "\\",
+        "%GameFilter%": "1-65535"
     }
 
     for macro, real_path in replacements.items():
-        args = args.replace(macro, real_path)
-        executable = executable.replace(macro, real_path)
+        final_args = final_args.replace(macro, real_path)
 
-    # Убираем двойные слеши, которые могли появиться
-    args = args.replace("\\\\", "\\")
-    
-    logging.info(f"Команда готова. EXE: {executable}")
-    return executable, args
+    final_args = final_args.replace("\\\\", "\\")
+    return executable, final_args
+
 
 def create_service(batch_path, display_version):
     """Создание службы в Windows."""
     executable, args = parse_bat_file(batch_path)
-    service_display = f"Sakura Flow DPI Bypass version[{display_version}]"
+    service_display = f"Sakura flow [{display_version}]"
     quoted_exe = f'"{executable}"' if ' ' in str(executable) else str(executable)
     bin_path_value = f'{quoted_exe} {args}'
     
@@ -92,6 +99,9 @@ def create_service(batch_path, display_version):
 
 def start_service(batch_path, display_version):
     """Остановка старой и запуск новой службы."""
+    # ПРИНУДИТЕЛЬНО убиваем висящие процессы winws перед стартом
+    subprocess.run("taskkill /f /im winws.exe >nul 2>&1", shell=True)
+    
     if service_exists():
         stop_service()
         delete_service()
@@ -103,6 +113,8 @@ def stop_service():
     if service_exists():
         run_cmd(f'sc.exe stop "{SERVICE_NAME}"')
         run_cmd('sc.exe stop "WinDivert"')
+    # Убиваем процесс, если служба зависла
+    subprocess.run("taskkill /f /im winws.exe >nul 2>&1", shell=True)
 
 def delete_service():
     """Удаление службы из системы."""
