@@ -1,11 +1,10 @@
-"""UI/Tray interface functions for Sakura flow by Ekcler."""
-import os
-import sys
+"""UI/Tray interface functions for Sakura Flow by Ekcler."""
 import subprocess
 import re
+import sys
 import threading
 import ctypes
-import logging
+import webbrowser  # Для открытия ссылки Telegram
 from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QSystemTrayIcon, QMenu, QAction, 
@@ -23,30 +22,11 @@ except Exception:
 
 # Импорты проекта
 try:
-    from .config import BASE_DIR
+    from .config import ICON_PATH, CHECK_ICON_PATH, BASE_DIR
     from . import service, autostart, state, tools
 except ImportError:
-    from src.config import BASE_DIR
+    from src.config import ICON_PATH, CHECK_ICON_PATH, BASE_DIR
     from src import service, autostart, state, tools
-
-# --- УНИВЕРСАЛЬНЫЙ ПУТЬ ДЛЯ РЕСУРСОВ (ИСПРАВЛЯЕТ ТРЕЙ В .EXE) ---
-def get_resource_path(relative_path):
-    """Универсальный поиск файлов для VS Code и PyInstaller .exe"""
-    if hasattr(sys, '_MEIPASS'):
-        # Если запущено из .exe (режим --onefile)
-        return os.path.join(sys._MEIPASS, relative_path)
-    
-    # Если запущено из VS Code (ищем от корня проекта)
-    # Определяем корень проекта относительно этого файла (src/ui.py)
-    current_dir = Path(__file__).parent.parent.resolve()
-    return str(current_dir / relative_path)
-
-# ПРОВЕРКА ПУТЕЙ (Сакура сама найдет свои иконки)
-FINAL_ICON = get_resource_path("icons/moonstone.ico")
-FINAL_CHECK = get_resource_path("icons/check.png")
-
-# ТЕСТ ПУТИ В КОНСОЛЬ (Чтобы ты видел, где она ищет)
-print(f"🌸 Ищу иконку тут: {FINAL_ICON}")
 
 # --- ОКНО РЕДАКТОРА СПИСКОВ ---
 class ListEditorWindow(QWidget):
@@ -58,7 +38,7 @@ class ListEditorWindow(QWidget):
     def init_ui(self):
         self.setWindowTitle("Sakura Blocklist Editor 📝")
         self.setFixedSize(400, 500)
-        self.setWindowIcon(QIcon(FINAL_ICON))
+        self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self.setStyleSheet("""
             QWidget { background-color: #0f0a12; color: #ffffff; font-family: 'Segoe UI'; }
@@ -71,6 +51,7 @@ class ListEditorWindow(QWidget):
         self.text_edit = QTextEdit()
         self.text_edit.setPlainText(tools.read_blocklist())
         layout.addWidget(self.text_edit)
+
         self.save_btn = QPushButton("💾 SAVE AND RESTART SERVICE")
         self.save_btn.clicked.connect(self.save_data)
         layout.addWidget(self.save_btn)
@@ -95,9 +76,9 @@ class NetworkToolsWindow(QWidget):
         self.timer.start(1000)
 
     def init_ui(self):
-        self.setWindowTitle("Sakura flow Tools")
-        self.setFixedSize(400, 600)
-        self.setWindowIcon(QIcon(FINAL_ICON))
+        self.setWindowTitle("Sakura Flow Tools by Ekcler")
+        self.setFixedSize(400, 650) # Увеличил высоту для новой кнопки
+        self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self.setStyleSheet("""
             QWidget { background-color: #0f0a12; color: #ffffff; font-family: 'Segoe UI'; }
@@ -108,9 +89,11 @@ class NetworkToolsWindow(QWidget):
             QLabel { color: #ff79c6; font-weight: bold; }
         """)
         layout = QVBoxLayout()
+        
         layout.addWidget(QLabel("Blocklist Management:"))
         self.edit_list_btn = QPushButton("📝 Edit General Blocklist")
         layout.addWidget(self.edit_list_btn)
+
         layout.addSpacing(10)
         layout.addWidget(QLabel("Network Utilities:"))
         self.host_input = QLineEdit(); self.host_input.setPlaceholderText("google.com")
@@ -119,6 +102,22 @@ class NetworkToolsWindow(QWidget):
         self.ping_btn = QPushButton("Ping"); self.trace_btn = QPushButton("Trace")
         net_btn_layout.addWidget(self.ping_btn); net_btn_layout.addWidget(self.trace_btn)
         layout.addLayout(net_btn_layout)
+
+        # --- КНОПКА TELEGRAM PROXY ---
+        self.tg_proxy_btn = QPushButton("🔹 Connect Telegram to Proxy (1080)")
+        self.tg_proxy_btn.setStyleSheet("""
+            QPushButton { 
+                background-color: #1a1b2e; 
+                border: 1px solid #313244; 
+                color: #89b4fa; 
+                font-weight: bold;
+                padding: 10px;
+            }
+            QPushButton:hover { background-color: #313244; color: #b4befe; }
+        """)
+        layout.addWidget(self.tg_proxy_btn)
+        self.tg_proxy_btn.clicked.connect(self.setup_tg_proxy)
+
         layout.addSpacing(10)
         layout.addWidget(QLabel("DNS Optimizer & Tester:"))
         dns_input_layout = QHBoxLayout()
@@ -126,34 +125,58 @@ class NetworkToolsWindow(QWidget):
         self.test_dns_btn = QPushButton("Test")
         dns_input_layout.addWidget(self.dns_input); dns_input_layout.addWidget(self.test_dns_btn)
         layout.addLayout(dns_input_layout)
+
         dns_ctrl_layout = QHBoxLayout()
         self.dns_best_btn = QPushButton("⚡ Find Best"); self.reset_dns_btn = QPushButton("🔄 Reset DNS")
         dns_ctrl_layout.addWidget(self.dns_best_btn); dns_ctrl_layout.addWidget(self.reset_dns_btn)
         layout.addLayout(dns_ctrl_layout)
+        
         self.apply_dns_btn = QPushButton("✅ Apply Best DNS"); self.apply_dns_btn.hide()
         layout.addWidget(self.apply_dns_btn)
+
         layout.addSpacing(10)
         self.traffic_label = QLabel("TRAFFIC | UP: 0.0 KB/s | DOWN: 0.0 KB/s")
         self.traffic_label.setStyleSheet("color: #50fa7b; font-family: 'Consolas'; font-size: 12px;")
         layout.addWidget(self.traffic_label)
+
         self.log_area = QTextEdit(); self.log_area.setReadOnly(True)
         layout.addWidget(self.log_area)
         self.setLayout(layout)
-        
+
+        # Сигналы
         self.edit_list_btn.clicked.connect(self.open_list_editor)
-        self.ping_btn.clicked.connect(lambda: self.log_area.append(f"Ping {self.host_input.text()}: {tools.get_ping(self.host_input.text())} ms") if self.host_input.text() else None)
+        self.ping_btn.clicked.connect(self.run_ping_logic)
         self.trace_btn.clicked.connect(lambda: tools.run_tracert(self.host_input.text()) if self.host_input.text() else None)
         self.test_dns_btn.clicked.connect(self.run_custom_dns_test)
         self.dns_best_btn.clicked.connect(self.run_best_dns_test)
         self.reset_dns_btn.clicked.connect(self.run_reset_dns)
         self.apply_dns_btn.clicked.connect(self.apply_best_dns)
 
+    def setup_tg_proxy(self):
+        """Копирует ссылку и открывает Telegram."""
+        link = "https://t.me/socks?server=127.0.0.1&port=1080"
+        try:
+            QApplication.clipboard().setText(link)
+            webbrowser.open(link)
+            self.log_area.append("✨ Telegram link opened & copied!")
+            btn_text = self.tg_proxy_btn.text()
+            self.tg_proxy_btn.setText("✅ Proxy Link Sent!")
+            QTimer.singleShot(2000, lambda: self.tg_proxy_btn.setText(btn_text))
+        except Exception as e:
+            self.log_area.append(f"❌ Proxy Error: {e}")
+
     def open_list_editor(self):
-        self.list_editor = ListEditorWindow(self.restart_func); self.list_editor.show(); self.list_editor.activateWindow()
+        self.list_editor = ListEditorWindow(self.restart_func)
+        self.list_editor.show()
+        self.list_editor.activateWindow()
 
     def update_stats(self):
         up, down = tools.get_traffic_stats()
         self.traffic_label.setText(f"TRAFFIC | UP: {up} KB/s | DOWN: {down} KB/s")
+
+    def run_ping_logic(self):
+        h = self.host_input.text().strip()
+        if h: self.log_area.append(f"Ping {h}: {tools.get_ping(h)} ms")
 
     def run_custom_dns_test(self):
         dns = self.dns_input.text().strip()
@@ -174,41 +197,27 @@ class NetworkToolsWindow(QWidget):
     def run_reset_dns(self):
         s, i = tools.reset_system_dns(); self.log_area.append(f"DNS Reset: {s} ({i})")
 
-# --- ЛОГИКА ОБНОВЛЕНИЯ СТИЛЕЙ ---
-def update_menu_styles(start_menu, actions, active_version):
-    """Подсветка активного батника внутри Start."""
-    try:
-        check_icon = QIcon(FINAL_CHECK) if os.path.exists(FINAL_CHECK) else QIcon()
-        for bat, action in actions.items():
-            if bat.stem == active_version:
-                font = QFont(); font.setBold(True); action.setFont(font)
-                action.setIcon(check_icon)
-            else:
-                action.setFont(QFont()); action.setIcon(QIcon())
-        start_menu.update()
-    except Exception as e:
-        logging.error(f"Style Error: {e}")
-
 # --- ТРЕЙ-МЕНЕДЖЕР ---
 tools_window = None
+
 def open_tools(restart_func):
     global tools_window
     if tools_window is None: tools_window = NetworkToolsWindow(restart_func)
     tools_window.show(); tools_window.activateWindow()
 
+def update_menu_styles(start_menu, actions, active_version):
+    for bat, action in actions.items():
+        if bat.stem == active_version:
+            font = QFont(); font.setBold(True); action.setFont(font)
+            if CHECK_ICON_PATH.exists(): action.setIcon(QIcon(str(CHECK_ICON_PATH)))
+        else:
+            action.setFont(QFont()); action.setIcon(QIcon())
+
 def create_tray_app(bat_files):
-    app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)
+    app = QApplication(sys.argv); app.setQuitOnLastWindowClosed(False)
+    app.setWindowIcon(QIcon(str(ICON_PATH))) 
     
-    # ПРИНУДИТЕЛЬНОЕ ИМЯ И ИКОНКА
-    app.setApplicationName("Sakura flow")
-    app_icon = QIcon(FINAL_ICON)
-    app.setWindowIcon(app_icon)
-    
-    # Создаем трей
-    tray = QSystemTrayIcon(app_icon)
-    tray.setToolTip("Sakura flow")
-    tray.show()
+    tray = QSystemTrayIcon(QIcon(str(ICON_PATH))); tray.show()
     
     menu = QMenu()
     menu.setStyleSheet("""
@@ -226,16 +235,11 @@ def create_tray_app(bat_files):
                     threading.Thread(target=lambda: service.start_service(b, b.stem), daemon=True).start()
                     break
 
-    # 1. Start Menu
     start_menu = QMenu("  Start", menu); start_menu.setStyleSheet(menu.styleSheet())
     actions = {}
     for bat in bat_files:
         action = start_menu.addAction(bat.stem)
-        action.triggered.connect(lambda checked, b=bat: (
-            state.save_state(last_bat=b.stem, stopped=False), 
-            threading.Thread(target=lambda: service.start_service(b, b.stem), daemon=True).start(), 
-            update_menu_styles(start_menu, actions, b.stem)
-        ))
+        action.triggered.connect(lambda checked, b=bat: (state.save_state(last_bat=b.stem, stopped=False), threading.Thread(target=lambda: service.start_service(b, b.stem), daemon=True).start(), update_menu_styles(start_menu, actions, b.stem)))
         actions[bat] = action
     menu.addMenu(start_menu)
 
@@ -243,14 +247,7 @@ def create_tray_app(bat_files):
     menu.addAction("  🛠️ Network Tools", lambda: open_tools(quick_restart))
     menu.addSeparator()
 
-    menu.addAction("  Stop", lambda: (
-        state.save_state(last_bat=None, stopped=True), 
-        threading.Thread(target=lambda: (
-            service.stop_service(), 
-            service.delete_service(), 
-            update_menu_styles(start_menu, actions, None)
-        ), daemon=True).start()
-    ))
+    menu.addAction("  Stop", lambda: (state.save_state(last_bat=None, stopped=True), threading.Thread(target=lambda: (service.stop_service(), service.delete_service(), update_menu_styles(start_menu, actions, None)), daemon=True).start()))
     
     autostart_action = menu.addAction("  Autostart")
     autostart_action.setCheckable(True)
@@ -260,18 +257,14 @@ def create_tray_app(bat_files):
     menu.addSeparator()
     menu.addAction("  Exit", lambda: (service.stop_service(), QApplication.quit()))
 
-    # Открытие меню по клику на иконку
     tray.activated.connect(lambda r: menu.popup(QCursor.pos()) if r in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) else None)
     tray.setContextMenu(menu)
 
-    # Восстановление активного состояния
     display_name = service.get_service_display_name()
     active_version = None
     if display_name:
-        # Извлекаем имя стратегии из квадратных скобок (Sakura flow [имя])
-        match = re.search(r'\[([^\]]+)\]', display_name)
+        match = re.search(r'version\[([^\]]+)\]', display_name)
         if match: active_version = match.group(1)
-    
     update_menu_styles(start_menu, actions, active_version)
 
     return app.exec_()

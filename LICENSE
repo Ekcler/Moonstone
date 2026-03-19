@@ -1,8 +1,7 @@
 MIT License
 
-Copyright (c) 2026 Ekcler (Sakura Flow Project)
-Copyright (c) 2025 NixNi (Moonstone Project)
-Copyright (c) 2016-2025 bol-van (Zapret Project)
+Copyright (c) 2016-2025 bol-van
+Copyright (c) 2025 NixNi
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24,21 +23,18 @@ SOFTWARE.
 
 ---
 
-Sakura Flow is a heavily modified and optimized version of the Moonstone project, 
-featuring a custom UI, enhanced networking tools, and advanced DPI bypass strategies.
-
 This repository contains binary files originating from the project by bol-van,  
-available at: https://github.com (licensed under the MIT License).
+available at: https://github.com/bol-van/zapret/ (licensed under the MIT License).
 
 This repository also includes and depends on WinDivert  
-(https://github.com), which is licensed under your choice of:
+(https://github.com/basil00/WinDivert), which is licensed under your choice of:
 
 1. The GNU Lesser General Public License (LGPL) Version 3, or  
 2. The GNU General Public License (GPL) Version 2.
 
 Binary distributions of WinDivert are included in this project as-is, without modification.  
 The corresponding source code and license terms for WinDivert are available at  
-https://github.com.
+https://github.com/basil00/WinDivert.
 
 ---
 
@@ -47,7 +43,7 @@ To comply with the licenses of these projects:
 1. The original copyright notices and licenses (above) are retained.  
 2. The use of WinDivert in this project is governed by its licensing terms (LGPLv3/GPLv2).  
 3. This repository includes:
-   - Sakura Flow's own source code (in the `src/` directory), which is licensed under MIT License by Ekcler.
-   - Binary files from the bol-van/zapret project (in the `zapret/` directory), used as-is.
-   - Binary distributions of WinDivert, included as-is without modification.
-4. The source code of the bol-van/zapret project and WinDivert are not included in this repository, but are available at their respective GitHub repositories.
+   - Moonstone's own source code (in the `src/` directory), which is licensed under MIT License
+   - Binary files from the bol-van/zapret project (in the `zapret/` directory), used as-is
+   - Binary distributions of WinDivert, included as-is without modification
+4. The source code of the bol-van/zapret project and WinDivert are not included in this repository, but are available at their respective GitHub repositories.  

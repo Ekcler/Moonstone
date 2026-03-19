@@ -1,62 +1,30 @@
-# Sakura flow
-Ультимативное Desktop-приложение для обхода DPI на базе `bol-van/zapret`. 
-Объединяет в себе мощь классического расщепления пакетов и современную WebSocket-маскировку для Telegram.
+# Sakura Flow 🌸
 
-![Интерфейс приложения](images/interface.png)
+An optimized desktop tray application for managing [zapret](https://github.com) on Windows.
 
----
+![Sakura Flow Interface](images/interface.png)
 
-## ✨ Основные возможности
-*   **🚀 YouTube & Discord Fix:** Полная поддержка обхода блокировок через кастомные стратегии `winws`.
-*   **🔵 Telegram WebSocket Proxy:** Встроенный асинхронный прокси-движок, маскирующий трафик Telegram под обычный HTTPS (WebSocket), что позволяет обходить даже самые жесткие блокировки MTProto.
-*   **⚙️ Умная рандомизация:** Приложение автоматически меняет параметры расщепления пакетов при каждом запуске для защиты от сигнатурного анализа ТСПУ.
-*   **🛡️ Авто-админ:** Автоматический запрос прав администратора для корректной работы драйвера `WinDivert`.
+## Key Enhancements:
+- **Redesigned UI**: Modern "Sakura" dark-pink theme with a **dedicated Telegram Proxy button** for instant SOCKS5 (port 1080) configuration.
+- **Network Tools**: Built-in Ping, Tracert and Live Traffic Monitor (KB/s).
+- **DNS Optimizer**: Smart DNS tester with one-click apply to Windows system settings.
+- **Blocklist Editor**: Manage your bypass domains directly from the app interface.
+- **Portable Mode**: The compiled `.exe` correctly locates `zapret`, `icons` folders, and the proxy engine.
 
----
-
-## 🚀 Быстрый старт
-
-### Запуск в режиме отладки (Debug Mode)
-Убедитесь, что у вас установлены все зависимости:
+## Quick Start
 ```bash
-pip install -r requirements.txt
-
-Используйте код с осторожностью.
-Запустите главный файл:
-bash
-
 python -m src.main
-
-Используйте код с осторожностью.
-Важно: Для работы драйвера перехвата пакетов требуются права администратора.
-Настройка Telegram Desktop
-После запуска Moonstone настройте Telegram для работы через встроенный туннель:
-
-    Перейдите в Настройки -> Продвинутые -> Тип соединения.
-    Нажмите Добавить прокси и выберите SOCKS5.
-    Введите данные:
-        Хост: 127.0.0.1
-        Порт: 1080 (стандартный для Moonstone)
-    Сохраните и убедитесь, что значок щита стал активным.
-
-📦 Сборка (Building)
-Для создания переносимой версии (.exe) используйте PyInstaller:
-bash
-
-pyinstaller --onedir --noconsole --name Moonstone ^
-  --add-data "icons;icons" ^
-  --add-data "zapret;zapret" ^
-  --hidden-import="cryptography" ^
-  --hidden-import="socksio" ^
-  --icon=icons/moonstone.ico ^
-  --version-file=version.py src/main.py
-
-Используйте код с осторожностью.
-🛠️ Разработка и отладка
-Подробную информацию о структуре проекта, добавлении новых стратегий и процессе сборки читайте в DEVELOPMENT.md.
-🤝 Благодарности (Credits)
-Этот проект стал возможен благодаря интеграции лучших Open-Source решений:
-
-    bol-van/zapret — основной движок обхода DPI (winws).
-    TgWsProxy — асинхронный движок WebSocket-прокси для Telegram.
-    Moonstone Community — за идеи, тестирование и веру в свободный интернет.
+```
+### Building
+``` bash
+pyinstaller --noconfirm --onedir --windowed --uac-admin `
+--name "SakuraFlow" `
+--icon "icons/moonstone.ico" `
+--add-data "icons;icons" `
+--add-data "zapret;zapret" `
+--add-data "src/tg_ws_proxy.py;." `
+src/main.py
+```
+#### Credits & Special Thanks
+*Flowseal* — for the incredible tg-ws-proxy engine that powers our Telegram connectivity.
+*NixNi* — for the inspiration and core logic behind the Sakura Flow interface and networking tools.
