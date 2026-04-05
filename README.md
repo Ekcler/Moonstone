@@ -37,13 +37,13 @@ python -m src.main
 ## Building
 
 ```bash
-pyinstaller --noconfirm --onedir --windowed ^
---name "SakuraFlow" ^
---icon "icons/moonstone.ico" ^
---manifest "manifest.xml" ^
---add-data "icons;icons" ^
---add-data "zapret;zapret" ^
---add-data "src/tg_ws_proxy.py;." ^
+pyinstaller --noconfirm --onedir --windowed 
+--name "SakuraFlow" 
+--icon "icons/moonstone.ico" 
+--manifest "manifest.xml" 
+--add-data "icons;icons" 
+--add-data "zapret;zapret" 
+--add-data "src/tg_ws_proxy.py;." 
 src/main.py
 ```
 
