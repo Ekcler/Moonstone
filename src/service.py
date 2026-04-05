@@ -10,6 +10,7 @@ try:
 except ImportError:
     from src.config import SERVICE_NAME, BAT_DIR, ENCODING
 
+
 def run_cmd(cmd):
     logging.info(f"Выполнение команды: {cmd}")
     try:
@@ -18,42 +19,40 @@ def run_cmd(cmd):
         logging.error(f"Ошибка команды: {e}")
         return None
 
+
 def service_exists():
     result = run_cmd(f'sc.exe query "{SERVICE_NAME}"')
-    return result and (SERVICE_NAME in result.stdout)
+    return result and result.stdout
+
 
 def get_service_display_name():
-    if not service_exists(): return None
+    if not service_exists():
+        return None
     result = run_cmd(f'sc.exe qc "{SERVICE_NAME}"')
     if result and result.returncode == 0:
         match = re.search(r'DISPLAY_NAME\s*:\s*(.+)', result.stdout)
-        if match: return match.group(1).strip()
+        if match:
+            return match.group(1).strip()
     return None
 
-# ... (начало файла без изменений) ...
 
 def parse_bat_file(batch_path):
     logging.info(f"Разбор стратегии: {batch_path}")
     with open(batch_path, 'r', encoding=ENCODING) as f:
         bat_content = f.read()
 
-    base_zapret = BAT_DIR 
+    base_zapret = BAT_DIR
     bin_dir = base_zapret / "bin"
     lists_dir = base_zapret / "lists"
-
     game_ports = "1-65535"
     bat_content = bat_content.replace("%GameFilter%", game_ports)
 
-    start_match = re.search(r'start\s+"[^"]*"\s+/min\s+"([^"]+)"\s+(.+)', bat_content, re.DOTALL)
+    start_match = re.search(r'start\s+"[^"]*"\s+/min\s+"?[^"\s]+"?\s+(.+)', bat_content, re.DOTALL)
     if not start_match:
         sys.exit("Ошибка: winws.exe не найден в батнике")
 
     executable = str(bin_dir / "winws.exe")
-    args = start_match.group(2).strip().replace('^', '').replace('\n', ' ').strip()
-
-    # --- ВОТ ЭТА СТРОКА ДЛЯ ТГ ПРОКСИ ---
-    #args = f"--wf-tcp=!1080 --wf-udp=!1080 {args}"
-    # ------------------------------------
+    args = start_match.group(1).strip().replace('^', '').replace('\n', ' ').strip()
 
     replacements = {
         "%BIN%": str(bin_dir) + "\\",
@@ -62,50 +61,45 @@ def parse_bat_file(batch_path):
     }
     for macro, real_path in replacements.items():
         args = args.replace(macro, real_path)
-    
+
     args = args.replace("\\\\", "\\")
     return executable, args
-
-# ... (остальной код без изменений) ...
 
 
 def create_service(batch_path, display_version):
     executable, args = parse_bat_file(batch_path)
     bin_dir = Path(executable).parent
     service_display = f"Sakura Flow DPI Bypass version[{display_version}]"
-    
-    # ИСПОЛЬЗУЕМ CMD-ПРОСЛОЙКУ (чтобы не было ошибки 1067/1734)
-    # И чтобы WinDivert подхватился из папки bin
-    bin_path_value = f'cmd.exe /c "cd /d \"{bin_dir}\" && \"{executable}\" {args}"'
-    
+    bin_path_value = f'cmd.exe /c "cd /d "{bin_dir}" && "{executable}" {args}"'
+
     cmd_args = [
         'sc.exe', 'create', SERVICE_NAME, 'start=', 'auto',
         'displayname=', service_display, 'binPath=', bin_path_value
     ]
     subprocess.run(cmd_args, capture_output=True, text=True, encoding=ENCODING)
 
+
 def start_service(batch_path, display_version):
     if service_exists():
         stop_service()
         delete_service()
+
     create_service(batch_path, display_version)
     run_cmd(f'sc.exe start "{SERVICE_NAME}"')
 
+
 def stop_service():
-    """Остановка службы, драйвера и всех зависших процессов winws."""
     if service_exists():
         logging.info("Остановка SakuraFlowService и очистка процессов...")
-        # 1. Останавливаем саму службу
         run_cmd(f'sc.exe stop "{SERVICE_NAME}"')
-        
-        # 2. ПРИНУДИТЕЛЬНО убиваем все процессы winws.exe, которые остались "сиротами"
-        # /F - принудительно, /T - дерево процессов, /IM - по имени имиджа
         run_cmd('taskkill /F /IM winws.exe /T')
-        
-        # 3. Останавливаем драйвер (важно, чтобы не было конфликтов при перезапуске)
         run_cmd('sc.exe stop "WinDivert"')
+    else:
+        return None
 
 
 def delete_service():
     if service_exists():
         run_cmd(f'sc.exe delete "{SERVICE_NAME}"')
+    else:
+        return None
