@@ -3,11 +3,12 @@ import subprocess
 import re
 import sys
 import threading
+import time
 import ctypes
 import logging
 from pathlib import Path
 
-from PyQt5.QtWidgets import (QApplication, QSystemTrayIcon, QMenu, QAction, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QTextEdit, QLabel, QMessageBox)
+from PyQt5.QtWidgets import (QApplication, QSystemTrayIcon, QMenu, QAction, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QTextEdit, QLabel, QMessageBox, QScrollArea)
 from PyQt5.QtGui import QDesktopServices, QIcon, QFont, QCursor
 from PyQt5.QtCore import QUrl, Qt, QTimer
 
@@ -82,33 +83,67 @@ class NetworkToolsWindow(QWidget):
         self.best_dns_found = None
         self.list_editor = None
         self._tg_proxy_on = False
-        self._socks5_running = tools.SOCKS5_ENABLED
+        self._socks5_running = False
         self.init_ui()
+        
+        app_state = state.load_state()
+        self.tg_port_input.setText(str(app_state.get("mtproto_port", 1080)))
+        self.tg_host_input.setText(app_state.get("mtproto_host", "127.0.0.1"))
+        self.tg_secret_input.setText(app_state.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d"))
+        
+        if app_state.get("mtproto_enabled", False):
+            self._socks5_running = True
+            self.socks5_toggle_btn.setText("STOP")
+            self.socks5_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(255, 77, 136, 0.25); border: 1px solid #ff4d88; color: #ff7aa2; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(255, 122, 162, 0.35); border: 1px solid #ff7aa2; }
+            """)
+        
         self.log_area.append("Ready!")
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_stats)
         self.timer.start(1000)
 
-        if self._socks5_running:
-            if tools.is_proxy_running():
-                self.log_area.append("SOCKS5 Proxy already running (started at boot)")
-            else:
-                self.start_socks5_proxy()
-
     def init_ui(self):
         self.setWindowTitle("Sakura Flow Tools by Ekcler")
-        self.setFixedSize(400, 650)
+        self.setFixedSize(450, 700)
         self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setWindowFlags(Qt.Window)
         self.setStyleSheet("""
-            QWidget { background-color: #0f0a12; color: #ffffff; font-family: 'Segoe UI'; }
-            QLineEdit { background-color: #1a141d; border: 1px solid #3d1b28; padding: 5px; border-radius: 3px; }
-            QPushButton { background-color: #2d1621; border: 1px solid #3d1b28; padding: 8px; border-radius: 3px; }
-            QPushButton:hover { background-color: #3d1b28; }
-            QTextEdit { background-color: #1a141d; border: 1px solid #3d1b28; font-family: 'Consolas'; font-size: 11px; }
-            QLabel { color: #ff79c6; font-weight: bold; }
+            QWidget { background-color: #0b0a12; color: #e8e8f0; font-family: 'Segoe UI'; }
+            QLineEdit { 
+                background-color: rgba(45, 35, 60, 0.6); 
+                border: 1px solid rgba(108, 92, 231, 0.3); 
+                padding: 5px; border-radius: 4px; color: #e8e8f0;
+            }
+            QLineEdit:focus { border: 1px solid #ff7aa2; }
+            QPushButton { 
+                background-color: rgba(255, 122, 162, 0.12); 
+                border: 1px solid rgba(255, 122, 162, 0.35); 
+                color: #ff7aa2; padding: 8px; border-radius: 4px; font-weight: 500;
+            }
+            QPushButton:hover { 
+                background-color: rgba(255, 122, 162, 0.22); 
+                border: 1px solid #ff4d88; 
+            }
+            QPushButton:pressed { background-color: rgba(255, 77, 136, 0.35); }
+            QTextEdit { 
+                background-color: rgba(18, 11, 26, 0.8); 
+                border: 1px solid rgba(108, 92, 231, 0.25); 
+                font-family: 'Consolas'; font-size: 11px; color: #c8c8d8;
+            }
+            QLabel { color: #ff7aa2; font-weight: 600; }
+            QScrollArea { background-color: #0b0a12; border: none; }
         """)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { background-color: #0b0a12; border: none; }")
+        
+        scroll_content = QWidget()
         layout = QVBoxLayout()
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
 
         layout.addWidget(QLabel("Blocklist Management:"))
         self.edit_list_btn = QPushButton("📝 Edit General Blocklist")
@@ -136,7 +171,7 @@ class NetworkToolsWindow(QWidget):
         layout.addWidget(self.tg_link_btn)
 
         layout.addSpacing(10)
-        layout.addWidget(QLabel("SOCKS5 PROXY:"))
+        layout.addWidget(QLabel("MTPROTO PROXY:"))
         host_port_layout = QHBoxLayout()
         host_port_layout.addWidget(QLabel("Host:"))
         self.tg_host_input = QLineEdit()
@@ -150,10 +185,21 @@ class NetworkToolsWindow(QWidget):
         host_port_layout.addWidget(self.tg_port_input)
         layout.addLayout(host_port_layout)
 
-        self.socks5_toggle_btn = QPushButton("ON")
+        secret_layout = QHBoxLayout()
+        secret_layout.addWidget(QLabel("Secret:"))
+        self.tg_secret_input = QLineEdit()
+        self.tg_secret_input.setPlaceholderText("efac191ac9b83e4c0c8c4e5e7c6a6b6d")
+        self.tg_secret_input.setText("efac191ac9b83e4c0c8c4e5e7c6a6b6d")
+        secret_layout.addWidget(self.tg_secret_input)
+        self.copy_secret_btn = QPushButton("Copy")
+        self.copy_secret_btn.setFixedWidth(60)
+        secret_layout.addWidget(self.copy_secret_btn)
+        layout.addLayout(secret_layout)
+
+        self.socks5_toggle_btn = QPushButton("START")
         self.socks5_toggle_btn.setStyleSheet("""
-            QPushButton { background-color: #1a3d1b; border: 1px solid #50fa7b; color: #50fa7b; font-weight: bold; padding: 10px; }
-            QPushButton:hover { background-color: #2d4d2b; }
+            QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
+            QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
         """)
         layout.addWidget(self.socks5_toggle_btn)
 
@@ -186,7 +232,14 @@ class NetworkToolsWindow(QWidget):
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
         layout.addWidget(self.log_area)
-        self.setLayout(layout)
+        
+        scroll_content.setLayout(layout)
+        scroll.setWidget(scroll_content)
+        
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(scroll)
+        self.setLayout(main_layout)
 
         self.edit_list_btn.clicked.connect(self.open_list_editor)
         self.ping_btn.clicked.connect(self.run_ping_logic)
@@ -197,12 +250,21 @@ class NetworkToolsWindow(QWidget):
         self.apply_dns_btn.clicked.connect(self.apply_best_dns)
         self.tg_link_btn.clicked.connect(self.copy_tg_link)
         self.socks5_toggle_btn.clicked.connect(self.toggle_socks5_proxy)
+        self.copy_secret_btn.clicked.connect(self.copy_secret)
 
-        if tools.SOCKS5_ENABLED:
-            self.socks5_toggle_btn.setText("OFF")
+    def _update_socks5_btn_state(self):
+        """Update button state based on actual proxy status."""
+        if tools.is_any_proxy_running():
+            self.socks5_toggle_btn.setText("STOP")
             self.socks5_toggle_btn.setStyleSheet("""
-                QPushButton { background-color: #2d1621; border: 1px solid #ff5555; color: #ff5555; font-weight: bold; padding: 10px; }
-                QPushButton:hover { background-color: #3d1b28; }
+                QPushButton { background-color: rgba(255, 77, 136, 0.25); border: 1px solid #ff4d88; color: #ff7aa2; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(255, 122, 162, 0.35); border: 1px solid #ff7aa2; }
+            """)
+        else:
+            self.socks5_toggle_btn.setText("START")
+            self.socks5_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
             """)
 
     def copy_tg_link(self):
@@ -211,39 +273,100 @@ class NetworkToolsWindow(QWidget):
         QDesktopServices.openUrl(QUrl(link))
         self.log_area.append("TG link copied and opened!")
 
-    def toggle_socks5_proxy(self):
-        if not tg_ws_proxy:
-            self.log_area.append("Proxy engine not available!")
-            return
+    def copy_secret(self):
+        secret = self.tg_secret_input.text().strip()
+        QApplication.clipboard().setText(secret)
+        self.log_area.append(f"Secret copied: {secret}")
 
-        if tools.is_proxy_running():
-            tools.stop_socks5_proxy()
-            self._socks5_running = False
-            self.socks5_toggle_btn.setText("ON")
-            self.socks5_toggle_btn.setStyleSheet("""
-                QPushButton { background-color: #1a3d1b; border: 1px solid #50fa7b; color: #50fa7b; font-weight: bold; padding: 10px; }
-                QPushButton:hover { background-color: #2d4d2b; }
+    def toggle_balancer(self):
+        app_state = state.load_state()
+        is_enabled = app_state.get("balancer_enabled", False)
+        
+        if is_enabled:
+            tools.stop_balancer()
+            tools._stop_all_proxies()
+            self.balancer_btn.setText("BALANCER: OFF")
+            self.balancer_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(255, 122, 162, 0.12); border: 1px solid rgba(255, 122, 162, 0.35); color: #ff7aa2; font-weight: 600; padding: 8px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(255, 122, 162, 0.22); border: 1px solid #ff4d88; }
             """)
-            self.log_area.append("SOCKS5 Proxy stopped")
+            self.log_area.append("BALANCER stopped")
         else:
+            backends = app_state.get("balancer_backends", [1081, 1082, 1083])
             try:
-                port = int(self.tg_port_input.text().strip() or "1080")
-                host = self.tg_host_input.text().strip() or "127.0.0.1"
-                success = tools.start_socks5_proxy(port=port, host=host)
-                if success:
-                    self._socks5_running = True
-                    self.socks5_toggle_btn.setText("OFF")
-                    self.socks5_toggle_btn.setStyleSheet("""
-                        QPushButton { background-color: #2d1621; border: 1px solid #ff5555; color: #ff5555; font-weight: bold; padding: 10px; }
-                        QPushButton:hover { background-color: #3d1b28; }
-                    """)
-                    self.log_area.append(f"SOCKS5 Proxy started: {host}:{port}")
-                else:
-                    self._socks5_running = False
-                    self.log_area.append(f"Failed to start SOCKS5 Proxy on {host}:{port}")
+                if tools.is_proxy_running(port=1080, host='127.0.0.1'):
+                    self.log_area.append("Stopping existing proxy on 1080...")
+                    tools.stop_socks5_proxy(port=1080, host='127.0.0.1')
+                    time.sleep(0.5)
+                
+                for port in backends:
+                    self.log_area.append(f"Starting proxy on {port}...")
+                    ok = tools.start_socks5_proxy(port=port, host='127.0.0.1')
+                    if not ok:
+                        self.log_area.append(f"FAILED to start backend on {port}")
+                        return
+                    time.sleep(0.5)
+                
+                self.log_area.append("Starting balancer...")
+                result = tools.start_balancer(listen_port=1080, backends=backends)
+                if result is None:
+                    self.log_area.append("BALANCER failed to start")
+                    return
+                
+                self.balancer_btn.setText("BALANCER: ON")
+                self.balancer_btn.setStyleSheet("""
+                    QPushButton { background-color: rgba(46, 213, 115, 0.2); border: 1px solid #2ed573; color: #7bed9f; font-weight: 600; padding: 8px; border-radius: 4px; }
+                    QPushButton:hover { background-color: rgba(46, 213, 115, 0.35); border: 1px solid #2ed573; }
+                """)
+                self.log_area.append(f"BALANCER started (1080 -> {backends})")
             except Exception as e:
-                self._socks5_running = False
-                self.log_area.append(f"Error: {e}")
+                self.log_area.append(f"BALANCER error: {e}")
+
+    def toggle_socks5_proxy(self):
+        port = int(self.tg_port_input.text().strip() or "1080")
+        host = self.tg_host_input.text().strip() or "127.0.0.1"
+        secret = self.tg_secret_input.text().strip() or "efac191ac9b83e4c0c8c4e5e7c6a6b6d"
+        
+        state.save_state(
+            mtproto_enabled=True,
+            mtproto_port=port,
+            mtproto_host=host,
+            mtproto_secret=secret
+        )
+        
+        self.log_area.append(f"[DEBUG] toggle_socks5: {host}:{port}")
+        
+        # Toggle based on button text instead of checking proxy state
+        if self.socks5_toggle_btn.text() == "STOP":
+            self.log_area.append("Stopping proxy...")
+            self.socks5_toggle_btn.setText("START")
+            self.socks5_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
+            """)
+            def do_stop():
+                try:
+                    tools.stop_socks5_proxy(port=port, host=host)
+                    state.save_state(mtproto_enabled=False)
+                    self.log_area.append("MTPROTO Proxy stopped")
+                except Exception as e:
+                    self.log_area.append(f"ERROR: {e}")
+            threading.Thread(target=do_stop, daemon=True).start()
+        else:
+            self.log_area.append("Starting proxy...")
+            self.socks5_toggle_btn.setText("STOP")
+            self.socks5_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(255, 77, 136, 0.25); border: 1px solid #ff4d88; color: #ff7aa2; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(255, 122, 162, 0.35); border: 1px solid #ff7aa2; }
+            """)
+            def do_start():
+                try:
+                    success = tools.start_socks5_proxy(port=port, host=host, secret=secret)
+                    if not success:
+                        self.log_area.append(f"Failed to start MTPROTO Proxy on {host}:{port}")
+                except Exception as e:
+                    self.log_area.append(f"ERROR: {e}")
+            threading.Thread(target=do_start, daemon=True).start()
 
     def start_socks5_proxy(self):
         if not tg_ws_proxy:
@@ -254,24 +377,29 @@ class NetworkToolsWindow(QWidget):
             success = tools.start_socks5_proxy(port=port, host=host)
             if success:
                 self._socks5_running = True
-                self.socks5_toggle_btn.setText("OFF")
-                self.socks5_toggle_btn.setStyleSheet("""
-                    QPushButton { background-color: #2d1621; border: 1px solid #ff5555; color: #ff5555; font-weight: bold; padding: 10px; }
-                    QPushButton:hover { background-color: #3d1b28; }
-                """)
-                self.log_area.append(f"SOCKS5 Proxy started: {host}:{port}")
+                self.log_area.append(f"MTPROTO Proxy started: {host}:{port}")
             else:
                 self._socks5_running = False
-                self.socks5_toggle_btn.setText("ON")
-                self.socks5_toggle_btn.setStyleSheet("""
-                    QPushButton { background-color: #1a3d1b; border: 1px solid #50fa7b; color: #50fa7b; font-weight: bold; padding: 10px; }
-                    QPushButton:hover { background-color: #2d4d2b; }
-                """)
-                self.log_area.append(f"Failed to start SOCKS5 Proxy on {host}:{port}")
+                self.log_area.append(f"Failed to start MTPROTO Proxy on {host}:{port}")
+            self._update_socks5_btn_state()
         except Exception as e:
             self._socks5_running = False
             self.log_area.append(f"Error: {e}")
             tools.set_socks5_enabled(False)
+
+    def update_proxy_btn_state(self, btn, is_on):
+        if is_on:
+            btn.setText("ON")
+            btn.setStyleSheet("""
+                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 5px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
+            """)
+        else:
+            btn.setText("OFF")
+            btn.setStyleSheet("""
+                QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 5px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
+            """)
 
     def open_list_editor(self):
         self.list_editor = ListEditorWindow(self.restart_func, self.start_menu, self.actions)

@@ -29,7 +29,7 @@ else:
 
 try:
     import src  
-    sys.modules['src'] = src
+    sys.modules['src'] = src    
     from src import admin, ui, config, service, tools, state
 except ImportError:
     import admin, ui, config, service, tools, state
@@ -51,11 +51,34 @@ logging.basicConfig(
 )
 
 def start_proxy_thread():
-    return tools.start_socks5_proxy()
+    app_state = state.load_state()
+    auto_switch = app_state.get("auto_switch_enabled", False)
+    
+    if auto_switch:
+        proxies = app_state.get("proxies", state.DEFAULT_PROXIES)
+        enabled_proxies = [p for p in proxies if p.get("enabled", True)]
+        
+        if len(enabled_proxies) >= 2:
+            for proxy in enabled_proxies:
+                tools.start_socks5_proxy(port=proxy['port'], host=proxy['host'])
+            
+            timeout = app_state.get("auto_switch_timeout", 5)
+            tools.set_auto_switch_config(True, timeout=timeout)
+            tools.start_auto_switch()
+            
+            logging.info(f"[SOCKS5] Multi-proxy started: {len(enabled_proxies)} proxies, auto-switch enabled")
+            return True
+        else:
+            logging.info("[SOCKS5] Not enough enabled proxies for auto-switch")
+    
+    port = app_state.get("proxies", state.DEFAULT_PROXIES)[0].get("port", 1080)
+    host = app_state.get("proxies", state.DEFAULT_PROXIES)[0].get("host", "127.0.0.1")
+    return tools.start_socks5_proxy(port=port, host=host)
 
 
 def stop_proxy_thread():
-    tools.stop_socks5_proxy()
+    tools.stop_auto_switch()
+    tools._stop_all_proxies()
 
 _current_bat = None
 _restart_func = None
@@ -75,13 +98,32 @@ def on_wake():
             logging.error(f"Ошибка перезапуска службы: {e}")
     
     app_state = state.load_state()
-    if app_state.get("socks5_enabled", False):
+    auto_switch = app_state.get("auto_switch_enabled", False)
+    
+    if app_state.get("socks5_enabled", False) or auto_switch:
         time.sleep(3)
         try:
-            stop_proxy_thread()
-            time.sleep(1)
-            start_proxy_thread()
-            logging.info("Прокси перезапущен после пробуждения")
+            if auto_switch:
+                proxies = app_state.get("proxies", state.DEFAULT_PROXIES)
+                enabled_proxies = [p for p in proxies if p.get("enabled", True)]
+                
+                for p in proxies:
+                    tools.stop_socks5_proxy(port=p['port'], host=p['host'])
+                time.sleep(1)
+                
+                for proxy in enabled_proxies:
+                    tools.start_socks5_proxy(port=proxy['port'], host=proxy['host'])
+                
+                timeout = app_state.get("auto_switch_timeout", 5)
+                tools.set_auto_switch_config(True, timeout=timeout)
+                tools.start_auto_switch()
+                
+                logging.info(f"Auto-switch перезапущен ({len(enabled_proxies)} proxies)")
+            else:
+                stop_proxy_thread()
+                time.sleep(1)
+                start_proxy_thread()
+                logging.info("Прокси перезапущен после пробуждения")
         except Exception as e:
             logging.error(f"Ошибка перезапуска прокси: {e}")
 
@@ -123,7 +165,13 @@ def main():
     tools.start_auto_monitor()
     
     app_state = state.load_state()
-    if app_state.get("socks5_enabled", False):
+    if app_state.get("mtproto_enabled", False):
+        logging.info("[MTPROTO] Восстановление прокси после запуска")
+        port = app_state.get("mtproto_port", 1080)
+        host = app_state.get("mtproto_host", "127.0.0.1")
+        secret = app_state.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d")
+        tools.start_socks5_proxy(port=port, host=host, secret=secret)
+    elif app_state.get("socks5_enabled", False):
         logging.info("[SOCKS5] Восстановление прокси после запуска")
         start_proxy_thread()
     
