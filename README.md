@@ -1,6 +1,6 @@
 # Sakura Flow 🌸
 
-Оптимизированное приложение в трее рабочего стола для управления [zapret](https://github.com) на Windows.
+Приложение в трее рабочего стола для управления [zapret](https://github.com) на Windows.
 
 ![Sakura Flow Interface](images/interface.png)
 
