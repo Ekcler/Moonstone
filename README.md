@@ -1,50 +1,50 @@
 # Sakura Flow 🌸
 
-An optimized desktop tray application for managing [zapret](https://github.com) on Windows.
+Оптимизированное приложение в трее рабочего стола для управления [zapret](https://github.com) на Windows.
 
 ![Sakura Flow Interface](images/interface.png)
 
-## Features
-- **DPI Bypass**: Creates a Windows service from zapret `.bat` profiles for persistent DPI bypass
-- **SOCKS5 Proxy**: Built-in Telegram WebSocket bridge proxy (127.0.0.1:1080) with DC auto-detection and TCP fallback
-- **Network Tools**: Ping, Tracert, and live traffic monitor (KB/s)
-- **DNS Optimizer**: Smart DNS tester (Cloudflare, Google, Yandex, Quad9) with one-click apply to Windows
-- **Blocklist Editor**: Edit bypass domains directly from the app
-- **Auto-add domains**: Monitors DNS cache and automatically adds unreachable domains to the blocklist
-- **Autostart**: Task Scheduler integration for launch on login
-- **Sleep/Wake handler**: Automatically restarts the service after the computer wakes from sleep
-- **Portable Mode**: The compiled `.exe` correctly locates all resources
+## Особенности
+- **Обход DPI**: Создает Windows-службу из профилей `.bat` zapret для постоянного обхода DPI
+- **SOCKS5-прокси**: Встроенный мост-прокси Telegram WebSocket (127.0.0.1:1080) с автоматическим определением DC и резервным TCP
+- **Сетевые инструменты**: Ping, Tracert и монитор живого трафика (КБ/с)
+- **Оптимизатор DNS**: Интеллектуальный тестер DNS (Cloudflare, Google, Yandex, Quad9) с одноразовым применением к Windows
+- **Редактор блок-листа**: Редактирование доменов обхода непосредственно из приложения
+- **Автоматическое добавление доменов**: Отслеживает кэш DNS и автоматически добавляет недоступные домены в блок-лист
+- **Автозапуск**: Интеграция с Планировщиком задач для запуска при входе в систему
+- **Обработчик сна/пробуждения**: Автоматически перезапускает службу после выхода компьютера из спящего режима
+- **Переносной режим**: Скомпилированный `.exe` правильно находит все ресурсы
 
-## Requirements
-- Python 3.x (tested with 3.13)
-- Administrator privileges (required for service management)
+## Требования
+- Python 3.x (протестировано с 3.13)
+- Привилегии администратора (требуются для управления службами)
 - Windows 10/11
 
-## Quick Start
+## Быстрый старт
 
-1. Install dependencies:
+1. Установите зависимости:
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Run as administrator:
+2. Запустите от имени администратора:
 ```bash
 python -m src.main
 ```
 
-> **Note:** The application requires administrator privileges to manage Windows services. It will automatically request elevation if not already running as admin.
+> **Примечание:** Приложению требуются привилегии администратора для управления Windows-службами. Оно автоматически запросит повышение прав, если запущено не от имени администратора.
 
-## Building
+## Сборка
 
 ```bash
 pyinstaller --onedir --noconfirm --noconsole --name SakuraFlow --manifest manifest.xml --add-data "icons;icons" --add-data "zapret;zapret" --add-data "src;proxy" --add-data "src/tg_ws_proxy.py;." --icon=icons/moonstone.ico --version-file=version.py src/main.py
 ```
 
-Or use the included build script:
+Или используйте включенный скрипт сборки:
 ```bash
 bash build.sh
 ```
 
-## Credits & Special Thanks
-- **Flowseal** — for the incredible tg-ws-proxy engine that powers our Telegram connectivity
-- **NixNi** — for the inspiration and core logic behind the Sakura Flow interface and networking tools
+## Благодарности и специальные thanks
+- **Flowseal** — за невероятный движок tg-ws-proxy, обеспечивающий связь с Telegram
+- **NixNi** — за вдохновение и основную логику интерфейса Sakura Flow и сетевых инструментов
