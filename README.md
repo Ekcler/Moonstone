@@ -45,6 +45,6 @@ pyinstaller --onedir --noconfirm --noconsole --name SakuraFlow --manifest manife
 bash build.sh
 ```
 
-## Благодарности и специальные thanks
+## Благодарности
 - **Flowseal** — за невероятный движок tg-ws-proxy, обеспечивающий связь с Telegram
 - **NixNi** — за вдохновение и основную логику интерфейса Sakura Flow и сетевых инструментов
