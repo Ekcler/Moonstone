@@ -21,17 +21,9 @@ except Exception:
 try:
     from .config import ICON_PATH, CHECK_ICON_PATH, BASE_DIR
     from . import service, autostart, state, tools
-    try:
-        from . import tg_ws_proxy
-    except ImportError:
-        tg_ws_proxy = None
 except ImportError:
     from src.config import ICON_PATH, CHECK_ICON_PATH, BASE_DIR
     from src import service, autostart, state, tools
-    try:
-        from src import tg_ws_proxy
-    except ImportError:
-        tg_ws_proxy = None
 
 
 class ListEditorWindow(QWidget):
@@ -162,15 +154,6 @@ class NetworkToolsWindow(QWidget):
         layout.addLayout(net_btn_layout)
 
         layout.addSpacing(10)
-        layout.addWidget(QLabel("TG PROXY:"))
-        self.tg_link_btn = QPushButton("🔗 OPEN LINK")
-        self.tg_link_btn.setStyleSheet("""
-            QPushButton { background-color: #1a1b2e; border: 1px solid #313244; color: #89b4fa; font-weight: bold; padding: 10px; }
-            QPushButton:hover { background-color: #313244; }
-        """)
-        layout.addWidget(self.tg_link_btn)
-
-        layout.addSpacing(10)
         layout.addWidget(QLabel("MTPROTO PROXY:"))
         host_port_layout = QHBoxLayout()
         host_port_layout.addWidget(QLabel("Host:"))
@@ -248,7 +231,6 @@ class NetworkToolsWindow(QWidget):
         self.dns_best_btn.clicked.connect(self.run_best_dns_test)
         self.reset_dns_btn.clicked.connect(self.run_reset_dns)
         self.apply_dns_btn.clicked.connect(self.apply_best_dns)
-        self.tg_link_btn.clicked.connect(self.copy_tg_link)
         self.socks5_toggle_btn.clicked.connect(self.toggle_socks5_proxy)
         self.copy_secret_btn.clicked.connect(self.copy_secret)
 
@@ -266,12 +248,6 @@ class NetworkToolsWindow(QWidget):
                 QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
                 QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
             """)
-
-    def copy_tg_link(self):
-        link = "https://t.me/proxy?server=why4ch.live&port=443&secret=717973e23c5681248f58e5004413d687"
-        QApplication.clipboard().setText(link)
-        QDesktopServices.openUrl(QUrl(link))
-        self.log_area.append("TG link copied and opened!")
 
     def copy_secret(self):
         secret = self.tg_secret_input.text().strip()
@@ -323,25 +299,6 @@ class NetworkToolsWindow(QWidget):
                 except Exception as e:
                     self.log_area.append(f"ERROR: {e}")
             threading.Thread(target=do_start, daemon=True).start()
-
-    def start_socks5_proxy(self):
-        if not tg_ws_proxy:
-            return
-        try:
-            port = int(self.tg_port_input.text().strip() or "1080")
-            host = self.tg_host_input.text().strip() or "127.0.0.1"
-            success = tools.start_socks5_proxy(port=port, host=host)
-            if success:
-                self._socks5_running = True
-                self.log_area.append(f"MTPROTO Proxy started: {host}:{port}")
-            else:
-                self._socks5_running = False
-                self.log_area.append(f"Failed to start MTPROTO Proxy on {host}:{port}")
-            self._update_socks5_btn_state()
-        except Exception as e:
-            self._socks5_running = False
-            self.log_area.append(f"Error: {e}")
-            tools.set_socks5_enabled(False)
 
     def update_proxy_btn_state(self, btn, is_on):
         if is_on:
