@@ -2,7 +2,7 @@
 
 Приложение в трее рабочего стола для управления [zapret](https://github.com) на Windows.
 
-![Sakura Flow Interface](images/interface.png)
+![Sakura Flow Interface](images/interface.jpg)
 
 ## Особенности
 - **Обход DPI**: Создает Windows-службу из профилей `.bat` zapret для постоянного обхода DPI
