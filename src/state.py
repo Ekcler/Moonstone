@@ -1,12 +1,18 @@
 """State management functions."""
 import json
 import logging
+import os
 import threading
 
 try:
     from .config import STATE_FILE
 except ImportError:
     from src.config import STATE_FILE
+
+
+def generate_secret():
+    """Generate random 32 hex chars (16 bytes)."""
+    return os.urandom(16).hex()
 
 
 DEFAULT_STATE = {
@@ -24,16 +30,25 @@ DEFAULT_STATE = {
     "balancer_enabled": False,
     "balancer_listen": 1080,
     "balancer_backends": [1081, 1082, 1083],
-    "proxy_secret": "efac191ac9b83e4c0c8c4e5e7c6a6b6d",
+    "proxy_secret": None,
     "mtproto_enabled": False,
     "mtproto_port": 1080,
     "mtproto_host": "127.0.0.1",
-    "mtproto_secret": "efac191ac9b83e4c0c8c4e5e7c6a6b6d"
+    "mtproto_secret": None
 }
 
 DEFAULT_PROXIES = DEFAULT_STATE["proxies"]
 
 _lock = threading.Lock()
+
+
+def get_default_state():
+    """Get default state with generated secrets."""
+    return {
+        **DEFAULT_STATE,
+        "proxy_secret": generate_secret(),
+        "mtproto_secret": generate_secret()
+    }
 
 
 def save_state(**patch):
@@ -54,11 +69,11 @@ def save_state(**patch):
                 "balancer_enabled": existing.get("balancer_enabled", False),
                 "balancer_listen": existing.get("balancer_listen", 1080),
                 "balancer_backends": existing.get("balancer_backends", [1081, 1082, 1083]),
-                "proxy_secret": existing.get("proxy_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d"),
+                "proxy_secret": existing.get("proxy_secret") or generate_secret(),
                 "mtproto_enabled": existing.get("mtproto_enabled", False),
                 "mtproto_port": existing.get("mtproto_port", 1080),
                 "mtproto_host": existing.get("mtproto_host", "127.0.0.1"),
-                "mtproto_secret": existing.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d")
+                "mtproto_secret": existing.get("mtproto_secret") or generate_secret()
             }
             
             tmp_file = STATE_FILE.with_suffix(".tmp")
@@ -95,13 +110,13 @@ def load_state_unsafe():
                 "balancer_enabled": data.get("balancer_enabled", False),
                 "balancer_listen": data.get("balancer_listen", 1080),
                 "balancer_backends": data.get("balancer_backends", [1081, 1082, 1083]),
-                "proxy_secret": data.get("proxy_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d"),
+                "proxy_secret": data.get("proxy_secret") or generate_secret(),
                 "mtproto_enabled": data.get("mtproto_enabled", False),
                 "mtproto_port": data.get("mtproto_port", 1080),
                 "mtproto_host": data.get("mtproto_host", "127.0.0.1"),
-                "mtproto_secret": data.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d")
+                "mtproto_secret": data.get("mtproto_secret") or generate_secret()
             }
     except Exception as e:
         logging.warning(f"Failed to load state, using defaults: {e}")
     
-    return DEFAULT_STATE.copy()
+    return get_default_state()
