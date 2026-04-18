@@ -81,3 +81,20 @@ def is_autostart_enabled():
     except Exception:
         return False
 
+
+def fix_autostart_path():
+    """Fix autostart task path if exe was moved or reinstalled."""
+    if not is_autostart_enabled():
+        return
+    try:
+        scheduler = win32com.client.Dispatch('Schedule.Service')
+        scheduler.Connect()
+        root_folder = scheduler.GetFolder('\\')
+        task = root_folder.GetTask(TASK_NAME)
+        current_path = task.Definition.Actions[0].Path
+        if not Path(current_path).exists():
+            logging.info(f"Путь автозапуска недействителен: {current_path}, обновляю...")
+            enable_autostart()
+    except Exception as e:
+        logging.error(f"Ошибка проверки пути автозапуска: {e}")
+

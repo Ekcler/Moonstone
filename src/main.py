@@ -30,9 +30,9 @@ else:
 try:
     import src  
     sys.modules['src'] = src    
-    from src import admin, ui, config, service, tools, state
+    from src import admin, ui, config, service, tools, state, autostart
 except ImportError:
-    import admin, ui, config, service, tools, state
+    import admin, ui, config, service, tools, state, autostart
 
 try:
     import tg_ws_proxy 
@@ -161,6 +161,8 @@ def main():
         logging.info("Запрос прав администратора...")
         admin.run_as_admin()
         return
+    
+    autostart.fix_autostart_path()
     
     tools.start_auto_monitor()
     
