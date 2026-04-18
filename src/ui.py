@@ -278,50 +278,6 @@ class NetworkToolsWindow(QWidget):
         QApplication.clipboard().setText(secret)
         self.log_area.append(f"Secret copied: {secret}")
 
-    def toggle_balancer(self):
-        app_state = state.load_state()
-        is_enabled = app_state.get("balancer_enabled", False)
-        
-        if is_enabled:
-            tools.stop_balancer()
-            tools._stop_all_proxies()
-            self.balancer_btn.setText("BALANCER: OFF")
-            self.balancer_btn.setStyleSheet("""
-                QPushButton { background-color: rgba(255, 122, 162, 0.12); border: 1px solid rgba(255, 122, 162, 0.35); color: #ff7aa2; font-weight: 600; padding: 8px; border-radius: 4px; }
-                QPushButton:hover { background-color: rgba(255, 122, 162, 0.22); border: 1px solid #ff4d88; }
-            """)
-            self.log_area.append("BALANCER stopped")
-        else:
-            backends = app_state.get("balancer_backends", [1081, 1082, 1083])
-            try:
-                if tools.is_proxy_running(port=1080, host='127.0.0.1'):
-                    self.log_area.append("Stopping existing proxy on 1080...")
-                    tools.stop_socks5_proxy(port=1080, host='127.0.0.1')
-                    time.sleep(0.5)
-                
-                for port in backends:
-                    self.log_area.append(f"Starting proxy on {port}...")
-                    ok = tools.start_socks5_proxy(port=port, host='127.0.0.1')
-                    if not ok:
-                        self.log_area.append(f"FAILED to start backend on {port}")
-                        return
-                    time.sleep(0.5)
-                
-                self.log_area.append("Starting balancer...")
-                result = tools.start_balancer(listen_port=1080, backends=backends)
-                if result is None:
-                    self.log_area.append("BALANCER failed to start")
-                    return
-                
-                self.balancer_btn.setText("BALANCER: ON")
-                self.balancer_btn.setStyleSheet("""
-                    QPushButton { background-color: rgba(46, 213, 115, 0.2); border: 1px solid #2ed573; color: #7bed9f; font-weight: 600; padding: 8px; border-radius: 4px; }
-                    QPushButton:hover { background-color: rgba(46, 213, 115, 0.35); border: 1px solid #2ed573; }
-                """)
-                self.log_area.append(f"BALANCER started (1080 -> {backends})")
-            except Exception as e:
-                self.log_area.append(f"BALANCER error: {e}")
-
     def toggle_socks5_proxy(self):
         port = int(self.tg_port_input.text().strip() or "1080")
         host = self.tg_host_input.text().strip() or "127.0.0.1"
