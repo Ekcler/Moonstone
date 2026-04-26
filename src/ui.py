@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PyQt5.QtWidgets import (QApplication, QSystemTrayIcon, QMenu, QAction, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLineEdit, QTextEdit, QLabel, QMessageBox, QScrollArea)
 from PyQt5.QtGui import QDesktopServices, QIcon, QFont, QCursor
-from PyQt5.QtCore import QUrl, Qt, QTimer
+from PyQt5.QtCore import QUrl, Qt, QTimer, QMetaObject, Q_ARG
 
 try:
     myappid = 'ekcler.sakuraflow.v1.2'
@@ -27,15 +27,24 @@ except ImportError:
 
 
 class ListEditorWindow(QWidget):
-    def __init__(self, restart_func, start_menu=None, actions=None):
+    def __init__(self, restart_func, list_type="general", start_menu=None, actions=None):
         super().__init__()
         self.restart_func = restart_func
+        self.list_type = list_type
         self.start_menu = start_menu
         self.actions = actions
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle("Sakura Blocklist Editor")
+        if self.list_type == "general":
+            self.setWindowTitle("Sakura Blocklist Editor")
+            title = "Domains (one per line):"
+            default_text = tools.read_blocklist()
+        else:
+            self.setWindowTitle("Sakura Ignore List Editor")
+            title = "Domains to ignore (one per line):"
+            default_text = tools.read_ignore_list()
+        
         self.setFixedSize(400, 500)
         self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setWindowFlags(Qt.WindowStaysOnTopHint)
@@ -46,9 +55,9 @@ class ListEditorWindow(QWidget):
             QPushButton:hover { background-color: #3d1b28; }
         """)
         layout = QVBoxLayout()
-        layout.addWidget(QLabel("Domains (one per line):"))
+        layout.addWidget(QLabel(title))
         self.text_edit = QTextEdit()
-        self.text_edit.setPlainText(tools.read_blocklist())
+        self.text_edit.setPlainText(default_text)
         layout.addWidget(self.text_edit)
 
         self.save_btn = QPushButton("SAVE AND RESTART SERVICE")
@@ -57,13 +66,16 @@ class ListEditorWindow(QWidget):
         self.setLayout(layout)
 
     def save_data(self):
-        if tools.save_blocklist(self.text_edit.toPlainText()):
-            service.stop_service()
-            service.delete_service()
-            if self.start_menu and self.actions:
-                update_menu_styles(self.start_menu, self.actions, None)
-            QMessageBox.information(self, "Success", "List updated! Service stopped.")
-            self.close()
+        if self.list_type == "general":
+            tools.save_blocklist(self.text_edit.toPlainText())
+        else:
+            tools.save_ignore_list(self.text_edit.toPlainText())
+        service.stop_service()
+        service.delete_service()
+        if self.start_menu and self.actions:
+            update_menu_styles(self.start_menu, self.actions, None)
+        QMessageBox.information(self, "Success", "List updated! Service stopped.")
+        self.close()
 
 
 class NetworkToolsWindow(QWidget):
@@ -74,14 +86,32 @@ class NetworkToolsWindow(QWidget):
         self.actions = actions
         self.best_dns_found = None
         self.list_editor = None
+        self.ignore_list_editor = None
         self._tg_proxy_on = False
         self._socks5_running = False
+        self._auto_add_on = False
+        self._ipv6_on = True
         self.init_ui()
         
         app_state = state.load_state()
         self.tg_port_input.setText(str(app_state.get("mtproto_port", 1080)))
         self.tg_host_input.setText(app_state.get("mtproto_host", "127.0.0.1"))
         self.tg_secret_input.setText(app_state.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d"))
+        
+        self._add_site_on = app_state.get("auto_add_enabled", False)
+        self.add_site_interval_input.setText(str(app_state.get("auto_add_interval", 60)))
+        if self._add_site_on:
+            self.add_site_toggle_btn.setText("OFF")
+            self.add_site_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
+            """)
+        else:
+            self.add_site_toggle_btn.setText("ON")
+            self.add_site_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
+            """)
         
         if app_state.get("mtproto_enabled", False):
             self._socks5_running = True
@@ -96,9 +126,17 @@ class NetworkToolsWindow(QWidget):
         self.timer.timeout.connect(self.update_stats)
         self.timer.start(1000)
 
+    def log_append(self, text, color=None):
+        """Thread-safe log append. color: 'green', 'red' or None."""
+        if color:
+            html = f'<span style="color: {color};">{text}</span>'
+        else:
+            html = text
+        QMetaObject.invokeMethod(self.log_area, "append", Qt.QueuedConnection, Q_ARG(str, html))
+
     def init_ui(self):
         self.setWindowTitle("Sakura Flow Tools by Ekcler")
-        self.setFixedSize(450, 700)
+        self.setFixedSize(450, 750)
         self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setWindowFlags(Qt.Window)
         self.setStyleSheet("""
@@ -138,8 +176,12 @@ class NetworkToolsWindow(QWidget):
         layout.setSpacing(5)
 
         layout.addWidget(QLabel("Blocklist Management:"))
+        blocklist_row = QHBoxLayout()
         self.edit_list_btn = QPushButton("📝 Edit General Blocklist")
-        layout.addWidget(self.edit_list_btn)
+        self.edit_ignore_btn = QPushButton("📝 Edit Ignore List")
+        blocklist_row.addWidget(self.edit_list_btn)
+        blocklist_row.addWidget(self.edit_ignore_btn)
+        layout.addLayout(blocklist_row)
 
         layout.addSpacing(10)
         layout.addWidget(QLabel("Network Utilities:"))
@@ -187,6 +229,22 @@ class NetworkToolsWindow(QWidget):
         layout.addWidget(self.socks5_toggle_btn)
 
         layout.addSpacing(10)
+        layout.addWidget(QLabel("AUTO ADD SITE:"))
+        add_site_row = QHBoxLayout()
+        self.add_site_toggle_btn = QPushButton("OFF")
+        self.add_site_toggle_btn.setStyleSheet("""
+            QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 10px; border-radius: 4px; }
+            QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
+        """)
+        add_site_row.addWidget(self.add_site_toggle_btn)
+        self.add_site_interval_input = QLineEdit()
+        self.add_site_interval_input.setPlaceholderText("interval (sec)")
+        self.add_site_interval_input.setFixedWidth(150)
+        add_site_row.addWidget(self.add_site_interval_input)
+        add_site_row.addStretch()
+        layout.addLayout(add_site_row)
+
+        layout.addSpacing(10)
         layout.addWidget(QLabel("DNS Optimizer & Tester:"))
         dns_input_layout = QHBoxLayout()
         self.dns_input = QLineEdit()
@@ -208,6 +266,19 @@ class NetworkToolsWindow(QWidget):
         layout.addWidget(self.apply_dns_btn)
 
         layout.addSpacing(10)
+        layout.addWidget(QLabel("IPv6:"))
+        self.ipv6_toggle_btn = QPushButton("ON")
+        self.ipv6_toggle_btn.setStyleSheet("""
+            QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
+            QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
+        """)
+        layout.addWidget(self.ipv6_toggle_btn)
+        
+        ipv6_warning = QLabel("⚠️ turn off if bypass does not work")
+        ipv6_warning.setStyleSheet("color: #ff6b6b; font-size: 10px;")
+        layout.addWidget(ipv6_warning)
+
+        layout.addSpacing(10)
         self.traffic_label = QLabel("📊 TRAFFIC | UP: 0.0 KB/s | DOWN: 0.0 KB/s")
         self.traffic_label.setStyleSheet("color: #50fa7b; font-family: 'Consolas'; font-size: 12px;")
         layout.addWidget(self.traffic_label)
@@ -225,6 +296,7 @@ class NetworkToolsWindow(QWidget):
         self.setLayout(main_layout)
 
         self.edit_list_btn.clicked.connect(self.open_list_editor)
+        self.edit_ignore_btn.clicked.connect(self.open_ignore_editor)
         self.ping_btn.clicked.connect(self.run_ping_logic)
         self.trace_btn.clicked.connect(lambda: tools.run_tracert(self.host_input.text()) if self.host_input.text() else None)
         self.test_dns_btn.clicked.connect(self.run_custom_dns_test)
@@ -233,6 +305,9 @@ class NetworkToolsWindow(QWidget):
         self.apply_dns_btn.clicked.connect(self.apply_best_dns)
         self.socks5_toggle_btn.clicked.connect(self.toggle_socks5_proxy)
         self.copy_secret_btn.clicked.connect(self.copy_secret)
+        self.add_site_toggle_btn.clicked.connect(self.toggle_add_site)
+        self.add_site_interval_input.textChanged.connect(self.on_add_site_interval_changed)
+        self.ipv6_toggle_btn.clicked.connect(self.toggle_ipv6)
 
     def _update_socks5_btn_state(self):
         """Update button state based on actual proxy status."""
@@ -249,10 +324,59 @@ class NetworkToolsWindow(QWidget):
                 QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
             """)
 
+    def toggle_add_site(self):
+        self._add_site_on = not self._add_site_on
+        state.save_state(auto_add_enabled=self._add_site_on)
+        if self._add_site_on:
+            self.add_site_toggle_btn.setText("OFF")
+            self.add_site_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
+            """)
+            self.add_site_toggle_btn.update()
+            self.log_append("Auto add site enabled")
+        else:
+            self.add_site_toggle_btn.setText("ON")
+            self.add_site_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
+            """)
+            self.add_site_toggle_btn.update()
+            self.log_append("Auto add site disabled")
+
+    def on_add_site_interval_changed(self, val):
+        try:
+            interval = int(val)
+            if interval > 0:
+                state.save_state(auto_add_interval=interval)
+        except ValueError:
+            pass
+
+    def toggle_ipv6(self):
+        self._ipv6_on = not self._ipv6_on
+        state.save_state(ipv6_enabled=self._ipv6_on)
+        if self._ipv6_on:
+            self.ipv6_toggle_btn.setText("ON")
+            self.ipv6_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
+            """)
+            tools.enable_ipv6()
+            self.log_append("IPv6 enabled")
+        else:
+            self.ipv6_toggle_btn.setText("OFF")
+            self.ipv6_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
+            """)
+            tools.disable_ipv6()
+            self.log_append("IPv6 disabled")
+        self.log_append("Restart required for changes to take effect")
+
     def copy_secret(self):
         secret = self.tg_secret_input.text().strip()
         QApplication.clipboard().setText(secret)
-        self.log_area.append(f"Secret copied: {secret}")
+        self.log_append(f"Secret copied: {secret}")
 
     def toggle_socks5_proxy(self):
         port = int(self.tg_port_input.text().strip() or "1080")
@@ -266,11 +390,10 @@ class NetworkToolsWindow(QWidget):
             mtproto_secret=secret
         )
         
-        self.log_area.append(f"[DEBUG] toggle_socks5: {host}:{port}")
+        self.log_append(f"[DEBUG] toggle_mtproto: {host}:{port}")
         
-        # Toggle based on button text instead of checking proxy state
         if self.socks5_toggle_btn.text() == "STOP":
-            self.log_area.append("Stopping proxy...")
+            self.log_append("Stopping MTPROTO proxy...")
             self.socks5_toggle_btn.setText("START")
             self.socks5_toggle_btn.setStyleSheet("""
                 QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
@@ -280,12 +403,12 @@ class NetworkToolsWindow(QWidget):
                 try:
                     tools.stop_socks5_proxy(port=port, host=host)
                     state.save_state(mtproto_enabled=False)
-                    self.log_area.append("MTPROTO Proxy stopped")
+                    self.log_append("MTPROTO proxy stopped", "green")
                 except Exception as e:
-                    self.log_area.append(f"ERROR: {e}")
+                    self.log_append(f"ERROR: {e}", "red")
             threading.Thread(target=do_stop, daemon=True).start()
         else:
-            self.log_area.append("Starting proxy...")
+            self.log_append("Starting MTPROTO proxy...")
             self.socks5_toggle_btn.setText("STOP")
             self.socks5_toggle_btn.setStyleSheet("""
                 QPushButton { background-color: rgba(255, 77, 136, 0.25); border: 1px solid #ff4d88; color: #ff7aa2; font-weight: bold; padding: 10px; border-radius: 4px; }
@@ -294,10 +417,12 @@ class NetworkToolsWindow(QWidget):
             def do_start():
                 try:
                     success = tools.start_socks5_proxy(port=port, host=host, secret=secret)
-                    if not success:
-                        self.log_area.append(f"Failed to start MTPROTO Proxy on {host}:{port}")
+                    if success:
+                        self.log_append("MTPROTO proxy started", "green")
+                    else:
+                        self.log_append(f"Failed to start MTPROTO proxy on {host}:{port}", "red")
                 except Exception as e:
-                    self.log_area.append(f"ERROR: {e}")
+                    self.log_append(f"ERROR: {e}", "red")
             threading.Thread(target=do_start, daemon=True).start()
 
     def update_proxy_btn_state(self, btn, is_on):
@@ -315,9 +440,14 @@ class NetworkToolsWindow(QWidget):
             """)
 
     def open_list_editor(self):
-        self.list_editor = ListEditorWindow(self.restart_func, self.start_menu, self.actions)
+        self.list_editor = ListEditorWindow(self.restart_func, "general", self.start_menu, self.actions)
         self.list_editor.show()
         self.list_editor.activateWindow()
+
+    def open_ignore_editor(self):
+        self.ignore_list_editor = ListEditorWindow(self.restart_func, "ignore", self.start_menu, self.actions)
+        self.ignore_list_editor.show()
+        self.ignore_list_editor.activateWindow()
 
     def update_stats(self):
         up, down = tools.get_traffic_stats()

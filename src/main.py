@@ -55,7 +55,9 @@ def start_proxy_thread():
     auto_switch = app_state.get("auto_switch_enabled", False)
     
     if auto_switch:
-        proxies = app_state.get("proxies", state.DEFAULT_PROXIES)
+        proxies = app_state.get("proxies", [])
+        if not proxies or not isinstance(proxies, list) or len(proxies) == 0:
+            proxies = state.DEFAULT_PROXIES
         enabled_proxies = [p for p in proxies if p.get("enabled", True)]
         
         if len(enabled_proxies) >= 2:
@@ -71,8 +73,16 @@ def start_proxy_thread():
         else:
             logging.info("[SOCKS5] Not enough enabled proxies for auto-switch")
     
-    port = app_state.get("proxies", state.DEFAULT_PROXIES)[0].get("port", 1080)
-    host = app_state.get("proxies", state.DEFAULT_PROXIES)[0].get("host", "127.0.0.1")
+    proxies_list = app_state.get("proxies", [])
+    
+    # Проверка на пустой массив
+    if not proxies_list or not isinstance(proxies_list, list) or len(proxies_list) == 0:
+        proxies_list = state.DEFAULT_PROXIES
+    
+    first_proxy = proxies_list[0]
+    port = first_proxy.get("port", 1080)
+    host = first_proxy.get("host", "127.0.0.1")
+    
     return tools.start_socks5_proxy(port=port, host=host)
 
 
@@ -104,7 +114,9 @@ def on_wake():
         time.sleep(3)
         try:
             if auto_switch:
-                proxies = app_state.get("proxies", state.DEFAULT_PROXIES)
+                proxies = app_state.get("proxies", [])
+                if not proxies or not isinstance(proxies, list) or len(proxies) == 0:
+                    proxies = state.DEFAULT_PROXIES
                 enabled_proxies = [p for p in proxies if p.get("enabled", True)]
                 
                 for p in proxies:
@@ -155,6 +167,15 @@ def register_sleep_handler(restart_func, current_bat):
         logging.error(f"Ошибка регистрации обработчика сна: {e}")
 
 def main():
+    try:
+        _main_inner()
+    except Exception as e:
+        logging.error(f"FATAL: {e}", exc_info=True)
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")
+
+def _main_inner():
     logging.info(f"START SAKURA FLOW. CWD: {os.getcwd()}")
     
     if not admin.is_admin():
@@ -190,4 +211,4 @@ def main():
     sys.exit(exit_code)
 
 if __name__ == "__main__":
-    main()
+    main()  # вызовет _main_inner через main()

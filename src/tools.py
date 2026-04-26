@@ -6,6 +6,9 @@ import time
 import logging
 import asyncio
 import signal
+import re
+import os
+import sqlite3
 from pathlib import Path
 from ping3 import ping
 
@@ -16,41 +19,31 @@ except ImportError:
     from src.config import BASE_DIR, ENCODING
     from src import state
 
+_QUARANTINE_CHECK_TIMES = {}
+_QUARANTINE_CHECK_TIMEOUT = 1800
+
 _last_io = None
 LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-general.txt"
 EXCLUDE_LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-exclude.txt"
+QUARANTINE_LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-quarantine.txt"
+MONITOR_INTERVAL = 60
+_AUTO_ADD_INTERVAL = 60
 
 _saved_state = state.load_state()
 AUTO_ADD_ENABLED = _saved_state.get("auto_add_enabled", False)
-SOCKS5_ENABLED = _saved_state.get("socks5_enabled", False)
+MTPROTO_ENABLED = _saved_state.get("socks5_enabled", False)
 
 
 def is_auto_add_enabled():
-    """Read current auto_add_enabled from state (not cached global)."""
     return state.load_state().get("auto_add_enabled", False)
 
 
 def is_socks5_enabled():
-    """Read current socks5_enabled from state (not cached global)."""
     return state.load_state().get("socks5_enabled", False)
 
 
-def is_auto_switch_enabled():
-    """Read current auto_switch_enabled from state."""
-    return state.load_state().get("auto_switch_enabled", False)
-
 _proxies = {}
 _proxy_lock = threading.Lock()
-_start_lock = threading.Lock()
-_stop_events = {}  # Global store for stop events by (host, port)
-
-_auto_switch_enabled = False
-_auto_switch_running = False
-_auto_switch_timeout = 5
-_auto_switch_thread = None
-_auto_switch_stop = threading.Event()
-_current_proxy_index = 0
-_last_data_time = {}
 
 _failed_domains = set()
 _failed_domains_max = 1000
@@ -102,6 +95,24 @@ def save_blocklist(text):
     try:
         LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
         LIST_PATH.write_text(text.strip(), encoding=ENCODING)
+        return True
+    except:
+        return False
+
+
+def read_ignore_list():
+    try:
+        if not EXCLUDE_LIST_PATH.exists():
+            return ""
+        return EXCLUDE_LIST_PATH.read_text(encoding=ENCODING)
+    except:
+        return ""
+
+
+def save_ignore_list(text):
+    try:
+        EXCLUDE_LIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+        EXCLUDE_LIST_PATH.write_text(text.strip(), encoding=ENCODING)
         return True
     except:
         return False
@@ -159,10 +170,102 @@ def read_general_list():
         if not LIST_PATH.exists():
             return set()
         content = LIST_PATH.read_text(encoding=ENCODING)
-        domains = set(line.strip().lower() for line in content.strip().split('\n') if line.strip())
+        domains = set(line.strip().lower() for line in content.strip().split('\n') if line.strip() and not line.startswith('#'))
         return domains
     except:
         return set()
+
+
+def read_quarantine_list():
+    try:
+        if not QUARANTINE_LIST_PATH.exists():
+            return {}
+        result = {}
+        content = QUARANTINE_LIST_PATH.read_text(encoding=ENCODING)
+        for line in content.strip().split('\n'):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.lower().split()
+            if len(parts) >= 1:
+                domain = parts[0]
+                timestamp = parts[1] if len(parts) > 1 else "0"
+                result[domain] = timestamp
+        return result
+    except:
+        return {}
+
+
+def add_to_quarantine(domain):
+    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
+    try:
+        current = read_quarantine_list()
+        if domain in current:
+            return False
+        timestamp = str(int(time.time()))
+        current[domain] = timestamp
+        lines = [f"{d} {t}" for d, t in sorted(current.items())]
+        QUARANTINE_LIST_PATH.write_text('\n'.join(lines) + '\n', encoding=ENCODING)
+        logging.info(f"[QUARANTINE] {domain} added to quarantine")
+        return True
+    except Exception as e:
+        logging.error(f"[QUARANTINE] Error: {e}")
+        return False
+
+
+def is_in_quarantine(domain):
+    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
+    return domain in read_quarantine_list()
+
+
+def move_from_quarantine_to_general(domain):
+    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
+    try:
+        qlist = read_quarantine_list()
+        if domain in qlist:
+            del qlist[domain]
+            QUARANTINE_LIST_PATH.write_text('\n'.join([f"{d} {t}" for d, t in sorted(qlist.items())]) + '\n', encoding=ENCODING)
+        success, _ = add_to_general(domain)
+        return success
+    except Exception as e:
+        logging.error(f"[MOVE] Error: {e}")
+        return False
+
+
+def is_whitelisted(domain):
+    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
+    try:
+        if EXCLUDE_LIST_PATH.exists():
+            content = EXCLUDE_LIST_PATH.read_text(encoding=ENCODING)
+            for line in content.strip().split('\n'):
+                line = line.strip().lower()
+                if line and not line.startswith('#'):
+                    if line == domain or domain.endswith('.' + line):
+                        return True
+    except:
+        pass
+    return False
+
+
+def get_blocked_stats():
+    qlist = read_quarantine_list()
+    current_time = int(time.time())
+    days = {1: 0, 7: 0, 30: 0, 90: 0, 9999: 0}
+    for domain, timestamp in qlist.items():
+        try:
+            age = (current_time - int(timestamp)) // 86400
+            if age < 1:
+                days[1] += 1
+            if age < 7:
+                days[7] += 1
+            if age < 30:
+                days[30] += 1
+            if age < 90:
+                days[90] += 1
+            days[9999] += 1
+        except:
+            pass
+    return {"1d": days[1], "7d": days[7], "30d": days[30], "90d": days[90], "total": days[9999]}
 
 
 def add_to_general(domain):
@@ -202,9 +305,28 @@ def check_domain_accessible(domain):
 
 
 def test_failed_domain(domain):
-    global _failed_domains
-    if is_in_general(domain):
+    global _failed_domains, _QUARANTINE_CHECK_TIMES
+    current_time = time.time()
+    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
+    
+    if is_in_general(domain) or is_whitelisted(domain):
         return None
+    
+    if is_in_quarantine(domain):
+        last_check = _QUARANTINE_CHECK_TIMES.get(domain, 0)
+        if current_time - last_check < _QUARANTINE_CHECK_TIMEOUT:
+            return None
+        
+        if check_domain_accessible(domain):
+            move_from_quarantine_to_general(domain)
+            _QUARANTINE_CHECK_TIMES[domain] = current_time
+            return {"action": "to_general", "domain": domain}
+        else:
+            _QUARANTINE_CHECK_TIMES[domain] = current_time
+            return None
+    
+    _QUARANTINE_CHECK_TIMES[domain] = current_time
+    
     if not check_domain_accessible(domain):
         _failed_domains.add(domain)
         if len(_failed_domains) > _failed_domains_max:
@@ -212,49 +334,152 @@ def test_failed_domain(domain):
             for _ in range(overflow):
                 if _failed_domains:
                     _failed_domains.pop()
-        success, result = add_to_general(domain)
-        if success:
-            return domain
+        if add_to_quarantine(domain):
+            return {"action": "to_quarantine", "domain": domain}
     else:
         _failed_domains.discard(domain)
     return None
 
 
+def cleanup_old_quarantine(days=30):
+    current_time = int(time.time())
+    days_in_seconds = days * 86400
+    try:
+        qlist = read_quarantine_list()
+        to_remove = []
+        to_keep = {}
+        for domain, timestamp in qlist.items():
+            try:
+                ts = int(timestamp)
+                if current_time - ts >= days_in_seconds:
+                    to_remove.append(domain)
+                else:
+                    to_keep[domain] = timestamp
+            except:
+                to_keep[domain] = timestamp
+        QUARANTINE_LIST_PATH.write_text('\n'.join([f"{d} {t}" for d, t in sorted(to_keep.items())]) + '\n', encoding=ENCODING)
+        logging.info(f"[QUARANTINE] Cleaned {len(to_remove)} old domains")
+        return to_remove
+    except Exception as e:
+        logging.error(f"[QUARANTINE] Cleanup error: {e}")
+        return []
+
+
+def recheck_quarantine_domain(domain):
+    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
+    current = read_quarantine_list()
+    if domain in current:
+        if check_domain_accessible(domain):
+            move_from_quarantine_to_general(domain)
+            return True
+    return False
+
+
+def _get_dns_cache_all_browsers():
+    """Get DNS cache from all browsers (Chrome, Edge, Firefox, Yandex)."""
+    domains = set()
+    
+    # 1. Windows DNS cache (Chrome, Edge)
+    try:
+        proc = subprocess.run('ipconfig /displaydns', capture_output=True, text=True, shell=True)
+        for line in proc.stdout.split('\n'):
+            if 'Record Name' in line:
+                name = line.split(':')[1].strip().lower()
+                if '.' in name and not name.startswith('.'):
+                    domains.add(name)
+    except:
+        pass
+    
+    # 2. Firefox DNS cache
+    ff_profiles = []
+    ff_base = Path(os.environ.get('APPDATA', '')) / 'Mozilla' / 'Firefox' / 'Profiles'
+    if ff_base.exists():
+        for profile in ff_base.iterdir():
+            if profile.is_dir() and ('.default-release' in profile.name or '.default' in profile.name):
+                ff_profiles.append(profile)
+    
+    for profile in ff_profiles:
+        cache_db = profile / 'cache2.sqlite'
+        if cache_db.exists():
+            try:
+                conn = sqlite3.connect(str(cache_db))
+                cursor = conn.cursor()
+                cursor.execute("SELECT hostname FROM cache_entry WHERE hostname LIKE '%.%'")
+                for row in cursor.fetchall():
+                    hostname = row[0].lower()
+                    if hostname and '.' in hostname:
+                        domains.add(hostname)
+                conn.close()
+            except:
+                pass
+        
+        host_db = profile / 'cache2' / 'entries'
+        if host_db.exists() and host_db.is_dir():
+            try:
+                for f in host_db.glob('*'):
+                    if f.is_file():
+                        name = f.name.lower()
+                        if '.' in name:
+                            domains.add(name)
+            except:
+                pass
+    
+    # 3. Yandex Browser
+    yandex_base = Path(os.environ.get('LOCALAPPDATA', '')) / 'Yandex' / 'YandexBrowser' / 'User Data' / 'Default'
+    if yandex_base.exists():
+        # Network cache
+        yandex_cache = yandex_base / 'Cache' / 'Cache' / '0'
+        if yandex_cache.exists():
+            try:
+                for f in yandex_cache.glob('*'):
+                    if f.is_file() and f.stat().st_size > 0:
+                        pass
+            except:
+                pass
+    
+    return list(domains)
+
+
 def start_auto_monitor(callback=None):
-    global _monitor_thread, _monitor_running
+    global _monitor_thread, _monitor_running, _AUTO_ADD_INTERVAL
     
     if _monitor_running:
         return
     
+    app_state = state.load_state()
+    _AUTO_ADD_INTERVAL = app_state.get("auto_add_interval", 60)
+    
     _monitor_running = True
     
     def monitor():
+        global _AUTO_ADD_INTERVAL
         while _monitor_running:
-            time.sleep(30)
+            current_interval = _AUTO_ADD_INTERVAL
+            time.sleep(current_interval)
             if not is_auto_add_enabled():
                 continue
             
-            current_dns = []
-            try:
-                proc = subprocess.run('ipconfig /displaydns', capture_output=True, text=True, shell=True)
-                lines = proc.stdout.split('\n')
-                for line in lines:
-                    if 'Record Name' in line:
-                        name = line.split(':')[1].strip().lower()
-                        if '.' in name and not name.startswith('.'):
-                            current_dns.append(name)
-            except:
-                pass
+            current_dns = _get_dns_cache_all_browsers()
+            
+            results = []
+            max_check = 10
+            checked = 0
             
             for domain in current_dns:
+                if checked >= max_check:
+                    break
                 if domain not in _failed_domains:
                     result = test_failed_domain(domain)
-                    if result and callback:
-                        callback(result)
+                    if result:
+                        results.append(result)
+                    checked += 1
+            
+            if results and callback:
+                callback(results)
     
     _monitor_thread = threading.Thread(target=monitor, daemon=True)
     _monitor_thread.start()
-    logging.info("[AUTO-MONITOR] Started")
+    logging.info(f"[AUTO-MONITOR] Started (interval: {_AUTO_ADD_INTERVAL}s)")
 
 
 def stop_auto_monitor():
@@ -270,35 +495,37 @@ def set_auto_add_enabled(enabled):
     logging.info(f"[AUTO-MONITOR] Enabled: {enabled}")
 
 
+def set_monitor_interval(seconds):
+    global _AUTO_ADD_INTERVAL
+    try:
+        seconds = int(seconds)
+        if seconds < 10:
+            seconds = 10
+        _AUTO_ADD_INTERVAL = seconds
+        state.save_state(auto_add_interval=seconds)
+        logging.info(f"[AUTO-MONITOR] Interval set to {seconds}s")
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def get_monitor_interval():
+    return _AUTO_ADD_INTERVAL
+
+
 def set_socks5_enabled(enabled):
-    global SOCKS5_ENABLED
-    SOCKS5_ENABLED = enabled
+    global MTPROTO_ENABLED
+    MTPROTO_ENABLED = enabled
     state.save_state(socks5_enabled=enabled)
-    logging.info(f"[SOCKS5] Enabled: {enabled}")
+    logging.info(f"[MTPROTO] Enabled: {enabled}")
 
 
 def get_socks5_enabled():
-    """Get current SOCKS5 enabled state from runtime, not cached global."""
-    return SOCKS5_ENABLED
+    return MTPROTO_ENABLED
 
 
 def get_auto_add_enabled():
-    """Get current auto-add enabled state from runtime."""
     return AUTO_ADD_ENABLED
-
-
-def set_proxies_config(proxies):
-    state.save_state(proxies=proxies)
-    logging.info(f"[PROXIES] Config saved: {proxies}")
-
-
-def set_auto_switch_config(enabled, timeout=None):
-    global _auto_switch_enabled, _auto_switch_timeout
-    if timeout is not None:
-        _auto_switch_timeout = timeout
-    _auto_switch_enabled = enabled
-    state.save_state(auto_switch_enabled=enabled, auto_switch_timeout=timeout or _auto_switch_timeout)
-    logging.info(f"[AUTO-SWITCH] Config: enabled={enabled}, timeout={_auto_switch_timeout}s")
 
 
 def _get_process_using_port(port):
@@ -319,129 +546,157 @@ def _get_process_using_port(port):
 def start_socks5_proxy(port=1080, host='127.0.0.1', secret=None):
     global _proxies
     
-    with _start_lock:
-        key = (host, port)
-        
-        with _proxy_lock:
-            if key in _proxies and _proxies[key]['thread'] and _proxies[key]['thread'].is_alive():
-                if _check_proxy_traffic(port):
-                    logging.info(f"[SOCKS5] Proxy {host}:{port} already running")
-                    return True
-                else:
-                    logging.info(f"[SOCKS5] Proxy {host}:{port} thread dead but key exists, cleaning up")
-                    try:
-                        del _proxies[key]
-                    except:
-                        pass
-
-        logging.debug(f"[SOCKS5] Proxy {host}:{port} starting...")
-
-        try:
-            from src.proxy.config import proxy_config
-            from src import tg_ws_proxy
-            logging.info(f"[SOCKS5] Import via 'from src' worked")
-        except ImportError:
-            from proxy.config import proxy_config
-            import tg_ws_proxy
-            logging.info(f"[SOCKS5] Import via 'import' worked")
-
-        dc_opt = {
-            1: '149.154.175.50', 2: '149.154.167.220',
-            3: '149.154.175.100', 4: '149.154.167.220',
-            5: '91.108.56.100'
-        }
-
-        app_state = state.load_state()
-        if secret is None:
-            secret = app_state.get("proxy_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d")
-
-        for attempt in range(3):
-            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            test_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                test_sock.bind((host, port))
-                test_sock.close()
-                break
-            except OSError as e:
-                test_sock.close()
-                if attempt < 2:
-                    time.sleep(0.5)
-                    continue
-                proc_info = _get_process_using_port(port)
-                if proc_info:
-                    logging.error(f"[SOCKS5] Port {port} already used by: {proc_info}")
-                else:
-                    logging.error(f"[SOCKS5] Port {port} already in use: {e}")
-                return False
-        
-        import asyncio
-        stop_event = asyncio.Event()
-        
-        def _run():
-            loop = None
-            try:
-                logging.info(f"[SOCKS5] _run before config, port={port}, host={host}")
-                proxy_config.port = port
-                proxy_config.host = host
-                proxy_config.secret = secret
-                proxy_config.dc_redirects = dc_opt
-                proxy_config.fake_tls_domain = ''
-                proxy_config.fallback_cfproxy = True
-                logging.info(f"[SOCKS5] proxy_config set: {proxy_config.port}:{proxy_config.host}")
-                
-                logging.info(f"[SOCKS5] Creating event loop...")
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                logging.info(f"[SOCKS5] Event loop set, calling run...")
-                
+    key = (host, port)
+    
+    with _proxy_lock:
+        if key in _proxies and _proxies[key]['thread'] and _proxies[key]['thread'].is_alive():
+            if _check_proxy_traffic(port):
+                logging.info(f"[MTPROTO] Proxy {host}:{port} already running")
+                return True
+            else:
+                logging.info(f"[MTPROTO] Proxy {host}:{port} thread dead but key exists, cleaning up")
                 try:
-                    loop.run_until_complete(tg_ws_proxy._run(stop_event))
-                    logging.info("[SOCKS5] run_until_complete returned")
-                except Exception as e:
-                    logging.error(f"[SOCKS5] run_until_complete error: {e}", exc_info=True)
-                    raise
-                finally:
-                    logging.info(f"[SOCKS5] Closing loop")
-                    loop.close()
+                    del _proxies[key]
+                except:
+                    pass
+
+    logging.debug(f"[MTPROTO] Proxy {host}:{port} starting...")
+
+    run_error = None
+    
+    try:
+        from src.proxy.config import proxy_config
+        from src import tg_ws_proxy
+        logging.info(f"[MTPROTO] Import via 'from src' worked")
+    except ImportError:
+        from proxy.config import proxy_config
+        import tg_ws_proxy
+        logging.info(f"[MTPROTO] Import via 'import' worked")
+
+    dc_opt = {
+        4: '149.154.167.91'
+    }
+
+    app_state = state.load_state()
+    
+    # Поддержка кастомных DC из настроек (DC->IP в UI)
+    custom_dc = app_state.get("custom_dc_redirects", {})
+    if custom_dc:
+        dc_opt.update(custom_dc)
+    if secret is None:
+        secret = app_state.get("proxy_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d")
+
+    for attempt in range(3):
+        test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        test_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            test_sock.bind((host, port))
+            test_sock.close()
+            break
+        except OSError as e:
+            test_sock.close()
+            if attempt < 2:
+                time.sleep(0.5)
+                continue
+            proc_info = _get_process_using_port(port)
+            if proc_info:
+                reason = f"Port {port} already used by: {proc_info}"
+                logging.error(f"[MTPROTO] {reason}")
+                return False, reason
+            else:
+                reason = f"Port {port} already in use: {e}"
+                logging.error(f"[MTPROTO] {reason}")
+                return False, reason
+    
+    import asyncio
+    stop_event = asyncio.Event()
+    thread_error = [None]
+    
+    def _run():
+        loop = None
+        try:
+            logging.info(f"[MTPROTO] _run before config, port={port}, host={host}")
+            proxy_config.port = port
+            proxy_config.host = host
+            proxy_config.secret = secret
+            proxy_config.dc_redirects = dc_opt
+            proxy_config.fake_tls_domain = ''
+            proxy_config.fallback_cfproxy = True
+            proxy_config.fallback_cfproxy_priority = True
+            proxy_config.cfproxy_user_domain = ''
+            
+            # Initialize balancer with CF proxy domains
+            try:
+                from src.proxy.balancer import balancer
+                from src.proxy.config import CFPROXY_DEFAULT_DOMAINS
+                balancer.update_domains_list(CFPROXY_DEFAULT_DOMAINS)
+            except ImportError:
+                from proxy.balancer import balancer
+                from proxy.config import CFPROXY_DEFAULT_DOMAINS
+                balancer.update_domains_list(CFPROXY_DEFAULT_DOMAINS)
+            
+            logging.info(f"[MTPROTO] proxy_config set: {proxy_config.port}:{proxy_config.host}")
+            
+            logging.info(f"[MTPROTO] Creating event loop...")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            logging.info(f"[MTPROTO] Event loop set, calling run...")
+            
+            try:
+                loop.run_until_complete(tg_ws_proxy._run(stop_event))
+                logging.info("[MTPROTO] run_until_complete returned")
             except Exception as e:
-                logging.error(f"[SOCKS5] Proxy error: {e}", exc_info=True)
-                import traceback
-                logging.error(f"[SOCKS5] Traceback: {traceback.format_exc()}")
+                logging.error(f"[MTPROTO] run_until_complete error: {e}", exc_info=True)
+                run_error = str(e)
+                raise
             finally:
-                logging.info(f"[SOCKS5] _run finally")
-                with _proxy_lock:
-                    if key in _proxies:
-                        _proxies[key]['running'] = False
-                        _proxies[key]['thread'] = None
-                if loop and not loop.is_closed():
-                    try:
-                        loop.close()
-                    except:
-                        pass
-        
-        thread = threading.Thread(target=_run, daemon=True, name=f'SOCKS5-{port}')
-        thread.start()
-        logging.info(f"[SOCKS5] Thread started, waiting for server...")
-        
-        time.sleep(0.5)  # Wait for server to start
-        
-        with _proxy_lock:
-            _proxies[key] = {
-                'thread': thread,
-                'stop_event': stop_event,
-                'port': port,
-                'host': host,
-                'running': True
-            }
-            _stop_events[key] = stop_event  # Also save globally
-        
-        if _check_proxy_traffic(port):
-            set_socks5_enabled(True)
-            logging.info(f"[SOCKS5] Proxy started on {host}:{port}")
-            return True
-        else:
-            logging.error(f"[SOCKS5] Proxy failed to start - port not listening")
-            return False
+                logging.info(f"[MTPROTO] Closing loop")
+                loop.close()
+        except Exception as e:
+            thread_error[0] = str(e)
+            logging.error(f"[MTPROTO] Proxy error: {e}", exc_info=True)
+            import traceback
+            logging.error(f"[MTPROTO] Traceback: {traceback.format_exc()}")
+        finally:
+            logging.info(f"[MTPROTO] _run finally")
+            with _proxy_lock:
+                if key in _proxies:
+                    _proxies[key]['running'] = False
+                    _proxies[key]['thread'] = None
+            if loop and not loop.is_closed():
+                try:
+                    loop.close()
+                except:
+                    pass
+    
+    thread = threading.Thread(target=_run, daemon=True, name=f'MTPROTO-{port}')
+    thread.start()
+    logging.info(f"[MTPROTO] Thread started, waiting for server...")
+    
+    time.sleep(0.5)
+    
+    if thread_error[0]:
+        reason = f"Startup error: {thread_error[0]}"
+        logging.error(f"[MTPROTO] Proxy failed to start - {reason}")
+        return False, reason
+    
+    with _proxy_lock:
+        _proxies[key] = {
+            'thread': thread,
+            'stop_event': stop_event,
+            'port': port,
+            'host': host,
+            'running': True
+        }
+    
+    if _check_proxy_traffic(port):
+        set_socks5_enabled(True)
+        logging.info(f"[MTPROTO] Proxy start: {host}:{port}")
+        return True, None
+    else:
+        reason = "Port not listening or no traffic received"
+        logging.error(f"[MTPROTO] Proxy failed to start - {reason}")
+        return False, reason
 
 
 def stop_socks5_proxy(port, host='127.0.0.1'):
@@ -451,73 +706,34 @@ def stop_socks5_proxy(port, host='127.0.0.1'):
     
     key = (host, port)
     
-    # Check running state BEFORE stopping
-    all_running_before = False
     with _proxy_lock:
-        all_running_before = any(
-            p.get('thread') and p['thread'].is_alive() and _check_proxy_traffic(p.get('port', 0))
-            for p in _proxies.values()
-            if (p.get('host'), p.get('port')) != key
-        )
-    
-    with _start_lock:
-        with _proxy_lock:
-            proxy = _proxies.get(key)
-            
-            logging.info(f"[DEBUG] stop_socks5_proxy: proxy={proxy}")
-            
-            if proxy:
-                try:
-                    stop_evt = proxy.get('stop_event')
-                    logging.info(f"[DEBUG] stop_socks5_proxy: stop_event={stop_evt}")
-                    if stop_evt:
-                        stop_evt.set()
-                        logging.info(f"[DEBUG] stop_event.set() called")
-                    thread = proxy.get('thread')
-                    if thread:
-                        logging.info(f"[DEBUG] join thread, alive={thread.is_alive()}")
-                        thread.join(timeout=3)
-                        logging.info(f"[DEBUG] thread joined")
-                except Exception as e:
-                    logging.error(f"[SOCKS5] Stop error: {e}")
-                
-                try:
-                    del _proxies[key]
-                except:
-                    pass
-                
-                try:
-                    del _stop_events[key]
-                except:
-                    pass
-                
-                logging.info(f"[SOCKS5] Proxy {host}:{port} stopped")
-            else:
-                # Try global stop events
-                stop_evt = _stop_events.get(key)
+        proxy = _proxies.get(key)
+        
+        logging.info(f"[DEBUG] stop_socks5_proxy: proxy={proxy}")
+        
+        if proxy:
+            try:
+                stop_evt = proxy.get('stop_event')
+                logging.info(f"[DEBUG] stop_socks5_proxy: stop_event={stop_evt}")
                 if stop_evt:
-                    logging.info(f"[DEBUG] Using global stop_event")
                     stop_evt.set()
-                    try:
-                        del _stop_events[key]
-                    except:
-                        pass
-                else:
-                    logging.info(f"[DEBUG] No proxy record, checking port for orphan")
+                    logging.info(f"[DEBUG] stop_event.set() called")
+                thread = proxy.get('thread')
+                if thread:
+                    logging.info(f"[DEBUG] join thread, alive={thread.is_alive()}")
+                    thread.join(timeout=3)
+                    logging.info(f"[DEBUG] thread joined")
+            except Exception as e:
+                logging.error(f"[MTPROTO] Stop error: {e}")
+            
+            try:
+                del _proxies[key]
+            except:
+                pass
+            
+            logging.info(f"[MTPROTO] Proxy {host}:{port} stopped")
         
-        # Check if ANY proxy is still running after this stop
-        all_running_after = False
-        with _proxy_lock:
-            if _proxies:
-                all_running_after = any(
-                    p.get('thread') and p['thread'].is_alive() and _check_proxy_traffic(p.get('port', 0))
-                    for p in _proxies.values()
-                )
-        
-        # Only set socks5_enabled to False if no proxies are running at all
-        if not all_running_after:
-            set_socks5_enabled(False)
-        
+        set_socks5_enabled(False)
         return True
 
 
@@ -527,20 +743,18 @@ def is_proxy_running(port=1080, host='127.0.0.1'):
         proxy = _proxies.get(key)
         
         if not proxy:
-            # No record in our dict - check if port is in use
             return _check_proxy_traffic(port)
         
         thread = proxy.get('thread')
         if not thread or not thread.is_alive():
             if proxy.get('running'):
-                logging.warning(f"[SOCKS5] Proxy {host}:{port} marked as running but thread dead")
+                logging.warning(f"[MTPROTO] Proxy {host}:{port} marked as running but thread dead")
             return _check_proxy_traffic(port)
         
         return _check_proxy_traffic(port)
 
 
 def _force_kill_port(port):
-    """Force kill process using port."""
     try:
         for conn in psutil.net_connections(kind='inet'):
             if conn.laddr and conn.laddr.port == port:
@@ -549,48 +763,40 @@ def _force_kill_port(port):
                         proc = psutil.Process(conn.pid)
                         proc.terminate()
                         proc.wait(timeout=3)
-                        logging.info(f"[SOCKS5] Killed PID {conn.pid}")
+                        logging.info(f"[MTPROTO] Killed PID {conn.pid}")
                         return True
                     except:
                         pass
     except Exception as e:
-        logging.warning(f"[SOCKS5] Force kill error: {e}")
+        logging.warning(f"[MTPROTO] Force kill error: {e}")
     return False
 
 
 def get_active_proxies():
-    """Return list of enabled proxies from config."""
-    saved_state = state.load_state()
-    proxies = saved_state.get("proxies", state.DEFAULT_PROXIES)
-    return [p for p in proxies if p.get("enabled", True)]
+    return []
 
 
 def start_all_proxies():
-    """Start all enabled proxies."""
-    for proxy in get_active_proxies():
-        start_socks5_proxy(port=proxy['port'], host=proxy['host'])
+    pass
 
 
 def stop_all_proxies():
-    """Stop all running proxies."""
     with _proxy_lock:
         for key in list(_proxies.keys()):
             try:
                 _proxies[key]['stop_event'].set()
                 _proxies[key]['running'] = False
             except Exception as e:
-                logging.error(f"[SOCKS5] Ошибка остановки {key}: {e}")
+                logging.error(f"[MTPROTO] Error stopping {key}: {e}")
         _proxies.clear()
     set_socks5_enabled(False)
 
 
 def _stop_all_proxies():
-    """Stop all proxies (legacy compatibility)."""
     stop_all_proxies()
 
 
 def _check_proxy_traffic(port):
-    """Check if proxy has active connections or is listening."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.5)
@@ -606,110 +812,21 @@ def _check_proxy_traffic(port):
                         return True
             return False
     except Exception as e:
-        logging.warning(f"[SOCKS5] _check_proxy_traffic error: {e}")
+        logging.warning(f"[MTPROTO] _check_proxy_traffic error: {e}")
         return False
 
 
-def start_auto_switch(callback=None):
-    """Start auto-switch monitoring worker."""
-    global _auto_switch_running, _auto_switch_thread, _current_proxy_index, _last_data_time
-    
-    if _auto_switch_running:
-        return
-    
-    if not is_auto_switch_enabled():
-        logging.warning("[AUTO-SWITCH] Not enabled in state, skipping start")
-        return
-    
-    _auto_switch_running = True
-    _current_proxy_index = 0
-    _last_data_time = {}
-    
-    for p in get_active_proxies():
-        _last_data_time[(p['host'], p['port'])] = time.time()
-    
-    def monitor():
-        global _current_proxy_index, _last_data_time
-        
-        while _auto_switch_running:
-            time.sleep(1)
-            
-            if not is_auto_switch_enabled():
-                continue
-            
-            proxies = get_active_proxies()
-            if len(proxies) < 2:
-                continue
-            
-            current_proxy = proxies[_current_proxy_index]
-            key = (current_proxy['host'], current_proxy['port'])
-            
-            has_traffic = _check_proxy_traffic(current_proxy['port'])
-            
-            if has_traffic:
-                _last_data_time[key] = time.time()
-                continue
-            
-            last_time = _last_data_time.get(key)
-            if last_time is None:
-                _last_data_time[key] = time.time()
-                continue
-            
-            elapsed = time.time() - last_time
-            
-            if elapsed > _auto_switch_timeout:
-                old_proxy = current_proxy
-                _current_proxy_index = (_current_proxy_index + 1) % len(proxies)
-                next_proxy = proxies[_current_proxy_index]
-                
-                logging.info(f"[AUTO-SWITCH] Timeout ({elapsed:.1f}s) on {old_proxy['host']}:{old_proxy['port']}, switching to {next_proxy['host']}:{next_proxy['port']}...")
-                
-                if is_proxy_running(port=old_proxy['port'], host=old_proxy['host']):
-                    stop_socks5_proxy(port=old_proxy['port'], host=old_proxy['host'])
-                    time.sleep(1)
-                
-                start_socks5_proxy(port=next_proxy['port'], host=next_proxy['host'])
-                time.sleep(0.5)
-                
-                _last_data_time[(next_proxy['host'], next_proxy['port'])] = time.time()
-                
-                if callback:
-                    callback(_current_proxy_index, next_proxy)
-    
-    _auto_switch_thread = threading.Thread(target=monitor, daemon=True)
-    _auto_switch_thread.start()
-    logging.info("[AUTO-SWITCH] Started")
-
-
-def stop_auto_switch():
-    """Stop auto-switch monitoring."""
-    global _auto_switch_running
-    _auto_switch_running = False
-    logging.info("[AUTO-SWITCH] Stopped")
-
-
-def get_auto_switch_status():
-    """Get current auto-switch status."""
-    return _auto_switch_running, _auto_switch_timeout
-
-
 def is_any_proxy_running():
-    """Check if any proxy is running."""
     with _proxy_lock:
         return any(p.get('thread') and p['thread'].is_alive() for p in _proxies.values())
 
 
-def init():
-    """Initialize background services. Call explicitly after app start."""
+def init(callback=None):
     if is_auto_add_enabled():
-        start_auto_monitor()
-
-
-
+        start_auto_monitor(callback=callback)
 
 
 def is_winws_running():
-    """Check if winws.exe process is running."""
     try:
         for proc in psutil.process_iter(['name']):
             if proc.info['name'] and proc.info['name'].lower() == 'winws.exe':
@@ -717,3 +834,48 @@ def is_winws_running():
     except Exception as e:
         logging.warning(f"[winws] Check error: {e}")
     return False
+
+
+def is_ipv6_disabled():
+    try:
+        result = subprocess.run([
+            'reg', 'query',
+            'HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters',
+            '/v', 'DisabledComponents'
+        ], capture_output=True, text=True, shell=True)
+        if 'DisabledComponents' in result.stdout:
+            match = re.search(r'DisabledComponents\s+REG_DWORD\s+0x([0-9a-fA-F]+)', result.stdout)
+            if match:
+                value = int(match.group(1), 16)
+                return value != 0
+        return False
+    except:
+        return False
+
+
+def disable_ipv6():
+    try:
+        result = subprocess.run([
+            'reg', 'add',
+            'HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters',
+            '/v', 'DisabledComponents', '/t', 'REG_DWORD', '/d', '4294967295', '/f'
+        ], capture_output=True, shell=True)
+        logging.info("[IPv6] Disabled via registry")
+        return result.returncode == 0
+    except Exception as e:
+        logging.error(f"[IPv6] Error: {e}")
+        return False
+
+
+def enable_ipv6():
+    try:
+        result = subprocess.run([
+            'reg', 'delete',
+            'HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters',
+            '/v', 'DisabledComponents', '/f'
+        ], capture_output=True, shell=True)
+        logging.info("[IPv6] Enabled via registry")
+        return result.returncode == 0
+    except Exception as e:
+        logging.error(f"[IPv6] Error: {e}")
+        return False

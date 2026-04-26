@@ -31,6 +31,7 @@ try:
     from src.proxy.bridge import MsgSplitter, CryptoCtx, do_fallback, bridge_ws_reencrypt
     from src.proxy.raw_websocket import RawWebSocket, WsHandshakeError, set_sock_opts
     from src.proxy.fake_tls import proxy_to_masking_domain, verify_client_hello, build_server_hello, FakeTlsStream, TLS_RECORD_HANDSHAKE
+    from src.proxy.balancer import balancer
 except ImportError:
     from proxy.utils import *
     from proxy.stats import stats
@@ -38,6 +39,7 @@ except ImportError:
     from src.proxy.bridge import MsgSplitter, CryptoCtx, do_fallback, bridge_ws_reencrypt
     from src.proxy.raw_websocket import RawWebSocket, WsHandshakeError, set_sock_opts
     from src.proxy.fake_tls import proxy_to_masking_domain, verify_client_hello, build_server_hello, FakeTlsStream, TLS_RECORD_HANDSHAKE
+    from src.proxy.balancer import balancer
 
 
 log = logging.getLogger('tg-mtproto-proxy')

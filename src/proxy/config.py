@@ -39,7 +39,7 @@ class ProxyConfig:
     port: int = 1443
     host: str = '127.0.0.1'
     secret: str = field(default_factory=lambda: os.urandom(16).hex())
-    dc_redirects: Dict[int, str] = field(default_factory=lambda: {2: '149.154.167.220', 4: '149.154.167.220'})
+    dc_redirects: Dict[int, str] = field(default_factory=lambda: {4: '149.154.167.91'})
     buffer_size: int = 256 * 1024
     pool_size: int = 4
     fallback_cfproxy: bool = True
@@ -85,6 +85,13 @@ def refresh_cfproxy_domains() -> None:
 
     proxy_config.cfproxy_domains = pool
     proxy_config.active_cfproxy_domain = random.choice(pool)
+    
+    # Обновляем balancer для ротации доменов
+    try:
+        from .balancer import balancer
+        balancer.update_domains_list(pool)
+    except ImportError:
+        pass
 
 
 _refresh_stop: threading.Event = threading.Event()
@@ -95,6 +102,13 @@ def start_cfproxy_domain_refresh() -> None:
     _refresh_stop.set()
     _refresh_stop = threading.Event()
     stop = _refresh_stop
+    
+    # Инициализируем balancer дефолтными доменами
+    try:
+        from .balancer import balancer
+        balancer.update_domains_list(CFPROXY_DEFAULT_DOMAINS)
+    except ImportError:
+        pass
 
     def _loop():
         refresh_cfproxy_domains()

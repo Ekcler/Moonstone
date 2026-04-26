@@ -19,14 +19,9 @@ DEFAULT_STATE = {
     "last_bat": None,
     "stopped": True,
     "auto_add_enabled": False,
+    "auto_add_interval": 60,
+    "ipv6_enabled": True,
     "socks5_enabled": False,
-    "proxies": [
-        {"port": 1081, "host": "127.0.0.1", "enabled": True},
-        {"port": 1082, "host": "127.0.0.1", "enabled": True},
-        {"port": 1083, "host": "127.0.0.1", "enabled": True}
-    ],
-    "auto_switch_enabled": False,
-    "auto_switch_timeout": 5,
     "proxy_secret": None,
     "mtproto_enabled": False,
     "mtproto_port": 1080,
@@ -34,7 +29,7 @@ DEFAULT_STATE = {
     "mtproto_secret": None
 }
 
-DEFAULT_PROXIES = DEFAULT_STATE["proxies"]
+DEFAULT_PROXIES = [{"port": 1080, "host": "127.0.0.1", "secret": ""}]
 
 _lock = threading.Lock()
 
@@ -59,10 +54,9 @@ def save_state(**patch):
                 "last_bat": existing.get("last_bat"),
                 "stopped": existing.get("stopped", True),
                 "auto_add_enabled": existing.get("auto_add_enabled", False),
+                "auto_add_interval": existing.get("auto_add_interval", 60),
+                "ipv6_enabled": existing.get("ipv6_enabled", True),
                 "socks5_enabled": existing.get("socks5_enabled", False),
-                "proxies": existing.get("proxies"),
-                "auto_switch_enabled": existing.get("auto_switch_enabled", False),
-                "auto_switch_timeout": existing.get("auto_switch_timeout", 5),
                 "proxy_secret": existing.get("proxy_secret") or generate_secret(),
                 "mtproto_enabled": existing.get("mtproto_enabled", False),
                 "mtproto_port": existing.get("mtproto_port", 1080),
@@ -97,10 +91,9 @@ def load_state_unsafe():
                 "last_bat": data.get("last_bat"),
                 "stopped": data.get("stopped", True),
                 "auto_add_enabled": data.get("auto_add_enabled", False),
+                "auto_add_interval": data.get("auto_add_interval", 60),
+                "ipv6_enabled": data.get("ipv6_enabled", True),
                 "socks5_enabled": data.get("socks5_enabled", False),
-                "proxies": data.get("proxies", DEFAULT_PROXIES),
-                "auto_switch_enabled": data.get("auto_switch_enabled", False),
-                "auto_switch_timeout": data.get("auto_switch_timeout", 5),
                 "proxy_secret": data.get("proxy_secret") or generate_secret(),
                 "mtproto_enabled": data.get("mtproto_enabled", False),
                 "mtproto_port": data.get("mtproto_port", 1080),

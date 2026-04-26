@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 
 from .utils import *
 from .stats import stats
+from .balancer import balancer
 from .config import proxy_config
 from .raw_websocket import RawWebSocket
 
