@@ -6,7 +6,7 @@
 
 ## Особенности
 - **Обход DPI**: Создает Windows-службу из профилей `.bat` zapret для постоянного обхода DPI
-- **MTPROTO-прокси**: Встроенный мост-прокси Telegram WebSocket (127.0.0.1:1443)
+- **MTPROTO-прокси**: Встроенный мост-прокси Telegram WebSocket (127.0.0.1:1080)
 - **Мульти-прокси**: Поддержка нескольких прокси с автопереключением между ними
 - **Сетевые инструменты**: Ping, Tracert и монитор живого трафика (КБ/с)
 - **Оптимизатор DNS**: Интеллектуальный тестер DNS (Cloudflare, Google, Yandex, Quad9) с одноразовым применением к Windows
@@ -40,7 +40,7 @@ python -m src.main
 ## Сборка
 
 ```bash
-pyinstaller --onedir --noconfirm --noconsole --name SakuraFlow --manifest manifest.xml --add-data "icons;icons" --add-data "zapret;zapret" --add-data "src;src" --add-data "src/tg_ws_proxy.py;." --icon=icons/moonstone.ico --version-file=version.py src/main.py
+pyinstaller --onedir --noconfirm --noconsole --name SakuraFlow --manifest manifest.xml --add-data "icons;icons" --add-data "zapret;zapret" --add-data "src;src" --icon=icons/moonstone.ico --version-file=version.py src/main.py
 ```
 
 ## Благодарности
