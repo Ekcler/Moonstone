@@ -26,8 +26,7 @@
 ## 🚀 Быстрый старт
 ### 🖥️ Для пользователей (EXE)
 1. Скачайте SakuraFlow.exe из раздела [Releases](https://github.com/Ekcler/Sakura-flow/releases)
-2. Запустите SakuraFlow.exe от имени администратора
-
+2. Запустите SakuraFlow.exe
 ### 💻 Для разработчиков (Source)
 1. Клонируйте репозиторий:
 ```bash
