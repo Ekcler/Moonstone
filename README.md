@@ -4,7 +4,7 @@
 
 ![Sakura Flow Interface](images/interface.jpg)
 
-## Основные возможности
+## ✨ Основные возможности
 - **Обход DPI**: Создает Windows-службу из профилей `.bat` zapret для постоянного обхода DPI
 - **MTPROTO-прокси**: Встроенный мост-прокси Telegram WebSocket (127.0.0.1:1080)
 - **Мульти-прокси**: Поддержка нескольких прокси с автопереключением между ними
@@ -18,17 +18,17 @@
 - **Обработчик сна/пробуждения**: Автоматически перезапускает службу после выхода компьютера из спящего режима
 - **Автодобавление сайтов**: Мониторинг DNS-кэша браузеров и автоматическое добавление недоступных доменов
 
-## Требования
+## ⚙️ Требования
 - **ОС**: Windows 10/11 (64-bit)
 - **Права**: Запуск от имени Администратора (необходимо для управления драйвером WinDivert и службами Windows)
 - Для запуска из исходного кода: Python 3.10+
 
-## Быстрый старт
-### Для пользователей (EXE)
+## 🚀 Быстрый старт
+### 🖥️ Для пользователей (EXE)
 1. Скачайте SakuraFlow.exe из раздела [Releases](https://github.com/Ekcler/Sakura-flow/releases)
 2. Запустите SakuraFlow.exe от имени администратора
 
-### Для разработчиков (Source)
+### 💻 Для разработчиков (Source)
 1. Клонируйте репозиторий:
 ```bash
 git clone https://github.com/Ekcler/Sakura-flow.git
@@ -44,19 +44,13 @@ python -m src.main
 
 > **Примечание:** Приложению требуются привилегии администратора для управления Windows-службами. Оно автоматически запросит повышение прав, если запущено не от имени администратора.
 
-## Сборка в один файл
+## 📦 Сборка в один файл
 Для создания автономного .exe используйте следующую команду:
 ```bash
-pyinstaller --onedir --noconfirm --noconsole --name SakuraFlow \
---manifest manifest.xml \
---add-data "icons;icons" \
---add-data "zapret;zapret" \
---add-data "src;src" \
---icon=icons/moonstone.ico \
---version-file=version.py src/main.py
+pyinstaller --onedir --noconfirm --noconsole --name SakuraFlow --manifest manifest.xml --add-data "icons;icons" --add-data "zapret;zapret" --add-data "src;src" --icon=icons/moonstone.ico --version-file=version.py src/main.py
 ```
 
-## Благодарности
+## ❤️ Благодарности
 - **bol-van** — за создание мощного движка zapret
 - **Flowseal** — за реализацию tg-ws-proxy, обеспечивающую связь с Telegram
 - **NixNi** — за вдохновение и базовую логику интерфейса Sakura Flow и сетевых инструментов
