@@ -8,7 +8,6 @@ import asyncio
 import signal
 import re
 import os
-import sqlite3
 from pathlib import Path
 from ping3 import ping
 
@@ -19,23 +18,12 @@ except ImportError:
     from src.config import BASE_DIR, ENCODING
     from src import state
 
-_QUARANTINE_CHECK_TIMES = {}
-_QUARANTINE_CHECK_TIMEOUT = 1800
-
 _last_io = None
 LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-general.txt"
 EXCLUDE_LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-exclude.txt"
-QUARANTINE_LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-quarantine.txt"
-MONITOR_INTERVAL = 60
-_AUTO_ADD_INTERVAL = 60
 
 _saved_state = state.load_state()
-AUTO_ADD_ENABLED = _saved_state.get("auto_add_enabled", False)
 MTPROTO_ENABLED = _saved_state.get("socks5_enabled", False)
-
-
-def is_auto_add_enabled():
-    return state.load_state().get("auto_add_enabled", False)
 
 
 def is_socks5_enabled():
@@ -44,11 +32,6 @@ def is_socks5_enabled():
 
 _proxies = {}
 _proxy_lock = threading.Lock()
-
-_failed_domains = set()
-_failed_domains_max = 1000
-_monitor_thread = None
-_monitor_running = False
 
 
 def get_ping(host):
@@ -165,354 +148,6 @@ def reset_system_dns():
         return False, str(e)
 
 
-def read_general_list():
-    try:
-        if not LIST_PATH.exists():
-            return set()
-        content = LIST_PATH.read_text(encoding=ENCODING)
-        domains = set(line.strip().lower() for line in content.strip().split('\n') if line.strip() and not line.startswith('#'))
-        return domains
-    except:
-        return set()
-
-
-def read_quarantine_list():
-    try:
-        if not QUARANTINE_LIST_PATH.exists():
-            return {}
-        result = {}
-        content = QUARANTINE_LIST_PATH.read_text(encoding=ENCODING)
-        for line in content.strip().split('\n'):
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            parts = line.lower().split()
-            if len(parts) >= 1:
-                domain = parts[0]
-                timestamp = parts[1] if len(parts) > 1 else "0"
-                result[domain] = timestamp
-        return result
-    except:
-        return {}
-
-
-def add_to_quarantine(domain):
-    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
-    try:
-        current = read_quarantine_list()
-        if domain in current:
-            return False
-        timestamp = str(int(time.time()))
-        current[domain] = timestamp
-        lines = [f"{d} {t}" for d, t in sorted(current.items())]
-        QUARANTINE_LIST_PATH.write_text('\n'.join(lines) + '\n', encoding=ENCODING)
-        logging.info(f"[QUARANTINE] {domain} added to quarantine")
-        return True
-    except Exception as e:
-        logging.error(f"[QUARANTINE] Error: {e}")
-        return False
-
-
-def is_in_quarantine(domain):
-    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
-    return domain in read_quarantine_list()
-
-
-def move_from_quarantine_to_general(domain):
-    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
-    try:
-        qlist = read_quarantine_list()
-        if domain in qlist:
-            del qlist[domain]
-            QUARANTINE_LIST_PATH.write_text('\n'.join([f"{d} {t}" for d, t in sorted(qlist.items())]) + '\n', encoding=ENCODING)
-        success, _ = add_to_general(domain)
-        return success
-    except Exception as e:
-        logging.error(f"[MOVE] Error: {e}")
-        return False
-
-
-def is_whitelisted(domain):
-    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
-    try:
-        if EXCLUDE_LIST_PATH.exists():
-            content = EXCLUDE_LIST_PATH.read_text(encoding=ENCODING)
-            for line in content.strip().split('\n'):
-                line = line.strip().lower()
-                if line and not line.startswith('#'):
-                    if line == domain or domain.endswith('.' + line):
-                        return True
-    except:
-        pass
-    return False
-
-
-def get_blocked_stats():
-    qlist = read_quarantine_list()
-    current_time = int(time.time())
-    days = {1: 0, 7: 0, 30: 0, 90: 0, 9999: 0}
-    for domain, timestamp in qlist.items():
-        try:
-            age = (current_time - int(timestamp)) // 86400
-            if age < 1:
-                days[1] += 1
-            if age < 7:
-                days[7] += 1
-            if age < 30:
-                days[30] += 1
-            if age < 90:
-                days[90] += 1
-            days[9999] += 1
-        except:
-            pass
-    return {"1d": days[1], "7d": days[7], "30d": days[30], "90d": days[90], "total": days[9999]}
-
-
-def add_to_general(domain):
-    try:
-        domain = domain.lower().strip()
-        domain = domain.replace("https://", "").replace("http://", "").split('/')[0]
-        current = read_general_list()
-        if domain in current:
-            return False, "Already in list"
-        current.add(domain)
-        LIST_PATH.write_text('\n'.join(sorted(current)) + '\n', encoding=ENCODING)
-        logging.info(f"[AUTO-ADD] Added {domain} to general list")
-        return True, domain
-    except Exception as e:
-        logging.error(f"[AUTO-ADD] Error: {e}")
-        return False, str(e)
-
-
-def is_in_general(domain):
-    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
-    return domain in read_general_list()
-
-
-def check_domain_accessible(domain):
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(3)
-        sock.connect((domain, 443))
-        sock.close()
-        return True
-    except:
-        try:
-            socket.gethostbyname(domain)
-            return True
-        except:
-            return False
-
-
-def test_failed_domain(domain):
-    global _failed_domains, _QUARANTINE_CHECK_TIMES
-    current_time = time.time()
-    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
-    
-    if is_in_general(domain) or is_whitelisted(domain):
-        return None
-    
-    if is_in_quarantine(domain):
-        last_check = _QUARANTINE_CHECK_TIMES.get(domain, 0)
-        if current_time - last_check < _QUARANTINE_CHECK_TIMEOUT:
-            return None
-        
-        if check_domain_accessible(domain):
-            move_from_quarantine_to_general(domain)
-            _QUARANTINE_CHECK_TIMES[domain] = current_time
-            return {"action": "to_general", "domain": domain}
-        else:
-            _QUARANTINE_CHECK_TIMES[domain] = current_time
-            return None
-    
-    _QUARANTINE_CHECK_TIMES[domain] = current_time
-    
-    if not check_domain_accessible(domain):
-        _failed_domains.add(domain)
-        if len(_failed_domains) > _failed_domains_max:
-            overflow = len(_failed_domains) - _failed_domains_max
-            for _ in range(overflow):
-                if _failed_domains:
-                    _failed_domains.pop()
-        if add_to_quarantine(domain):
-            return {"action": "to_quarantine", "domain": domain}
-    else:
-        _failed_domains.discard(domain)
-    return None
-
-
-def cleanup_old_quarantine(days=30):
-    current_time = int(time.time())
-    days_in_seconds = days * 86400
-    try:
-        qlist = read_quarantine_list()
-        to_remove = []
-        to_keep = {}
-        for domain, timestamp in qlist.items():
-            try:
-                ts = int(timestamp)
-                if current_time - ts >= days_in_seconds:
-                    to_remove.append(domain)
-                else:
-                    to_keep[domain] = timestamp
-            except:
-                to_keep[domain] = timestamp
-        QUARANTINE_LIST_PATH.write_text('\n'.join([f"{d} {t}" for d, t in sorted(to_keep.items())]) + '\n', encoding=ENCODING)
-        logging.info(f"[QUARANTINE] Cleaned {len(to_remove)} old domains")
-        return to_remove
-    except Exception as e:
-        logging.error(f"[QUARANTINE] Cleanup error: {e}")
-        return []
-
-
-def recheck_quarantine_domain(domain):
-    domain = domain.lower().strip().replace("https://", "").replace("http://", "").split('/')[0]
-    current = read_quarantine_list()
-    if domain in current:
-        if check_domain_accessible(domain):
-            move_from_quarantine_to_general(domain)
-            return True
-    return False
-
-
-def _get_dns_cache_all_browsers():
-    """Get DNS cache from all browsers (Chrome, Edge, Firefox, Yandex)."""
-    domains = set()
-    
-    # 1. Windows DNS cache (Chrome, Edge)
-    try:
-        proc = subprocess.run('ipconfig /displaydns', capture_output=True, text=True, shell=True)
-        for line in proc.stdout.split('\n'):
-            if 'Record Name' in line:
-                name = line.split(':')[1].strip().lower()
-                if '.' in name and not name.startswith('.'):
-                    domains.add(name)
-    except:
-        pass
-    
-    # 2. Firefox DNS cache
-    ff_profiles = []
-    ff_base = Path(os.environ.get('APPDATA', '')) / 'Mozilla' / 'Firefox' / 'Profiles'
-    if ff_base.exists():
-        for profile in ff_base.iterdir():
-            if profile.is_dir() and ('.default-release' in profile.name or '.default' in profile.name):
-                ff_profiles.append(profile)
-    
-    for profile in ff_profiles:
-        cache_db = profile / 'cache2.sqlite'
-        if cache_db.exists():
-            try:
-                conn = sqlite3.connect(str(cache_db))
-                cursor = conn.cursor()
-                cursor.execute("SELECT hostname FROM cache_entry WHERE hostname LIKE '%.%'")
-                for row in cursor.fetchall():
-                    hostname = row[0].lower()
-                    if hostname and '.' in hostname:
-                        domains.add(hostname)
-                conn.close()
-            except:
-                pass
-        
-        host_db = profile / 'cache2' / 'entries'
-        if host_db.exists() and host_db.is_dir():
-            try:
-                for f in host_db.glob('*'):
-                    if f.is_file():
-                        name = f.name.lower()
-                        if '.' in name:
-                            domains.add(name)
-            except:
-                pass
-    
-    # 3. Yandex Browser
-    yandex_base = Path(os.environ.get('LOCALAPPDATA', '')) / 'Yandex' / 'YandexBrowser' / 'User Data' / 'Default'
-    if yandex_base.exists():
-        # Network cache
-        yandex_cache = yandex_base / 'Cache' / 'Cache' / '0'
-        if yandex_cache.exists():
-            try:
-                for f in yandex_cache.glob('*'):
-                    if f.is_file() and f.stat().st_size > 0:
-                        pass
-            except:
-                pass
-    
-    return list(domains)
-
-
-def start_auto_monitor(callback=None):
-    global _monitor_thread, _monitor_running, _AUTO_ADD_INTERVAL
-    
-    if _monitor_running:
-        return
-    
-    app_state = state.load_state()
-    _AUTO_ADD_INTERVAL = app_state.get("auto_add_interval", 60)
-    
-    _monitor_running = True
-    
-    def monitor():
-        global _AUTO_ADD_INTERVAL
-        while _monitor_running:
-            current_interval = _AUTO_ADD_INTERVAL
-            time.sleep(current_interval)
-            if not is_auto_add_enabled():
-                continue
-            
-            current_dns = _get_dns_cache_all_browsers()
-            
-            results = []
-            max_check = 10
-            checked = 0
-            
-            for domain in current_dns:
-                if checked >= max_check:
-                    break
-                if domain not in _failed_domains:
-                    result = test_failed_domain(domain)
-                    if result:
-                        results.append(result)
-                    checked += 1
-            
-            if results and callback:
-                callback(results)
-    
-    _monitor_thread = threading.Thread(target=monitor, daemon=True)
-    _monitor_thread.start()
-    logging.info(f"[AUTO-MONITOR] Started (interval: {_AUTO_ADD_INTERVAL}s)")
-
-
-def stop_auto_monitor():
-    global _monitor_running
-    _monitor_running = False
-    logging.info("[AUTO-MONITOR] Stopped")
-
-
-def set_auto_add_enabled(enabled):
-    global AUTO_ADD_ENABLED
-    AUTO_ADD_ENABLED = enabled
-    state.save_state(auto_add_enabled=enabled)
-    logging.info(f"[AUTO-MONITOR] Enabled: {enabled}")
-
-
-def set_monitor_interval(seconds):
-    global _AUTO_ADD_INTERVAL
-    try:
-        seconds = int(seconds)
-        if seconds < 10:
-            seconds = 10
-        _AUTO_ADD_INTERVAL = seconds
-        state.save_state(auto_add_interval=seconds)
-        logging.info(f"[AUTO-MONITOR] Interval set to {seconds}s")
-        return True
-    except (ValueError, TypeError):
-        return False
-
-
-def get_monitor_interval():
-    return _AUTO_ADD_INTERVAL
-
-
 def set_socks5_enabled(enabled):
     global MTPROTO_ENABLED
     MTPROTO_ENABLED = enabled
@@ -522,10 +157,6 @@ def set_socks5_enabled(enabled):
 
 def get_socks5_enabled():
     return MTPROTO_ENABLED
-
-
-def get_auto_add_enabled():
-    return AUTO_ADD_ENABLED
 
 
 def _get_process_using_port(port):
@@ -819,11 +450,6 @@ def _check_proxy_traffic(port):
 def is_any_proxy_running():
     with _proxy_lock:
         return any(p.get('thread') and p['thread'].is_alive() for p in _proxies.values())
-
-
-def init(callback=None):
-    if is_auto_add_enabled():
-        start_auto_monitor(callback=callback)
 
 
 def is_winws_running():

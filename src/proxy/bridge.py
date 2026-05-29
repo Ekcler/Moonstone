@@ -268,7 +268,11 @@ async def bridge_ws_reencrypt(reader, writer, ws: RawWebSocket, label,
                 plain = ctx.tg_dec.update(data)
                 data = ctx.clt_enc.update(plain)
                 writer.write(data)
-                await writer.drain()
+                try:
+                    if writer.transport.get_write_buffer_size() > 65536:
+                        await writer.drain()
+                except (AttributeError, NotImplementedError):
+                    await writer.drain()
         except (asyncio.CancelledError, ConnectionError, OSError):
             return
         except Exception as e:

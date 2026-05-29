@@ -183,16 +183,34 @@ class _WsPool:
 
     @staticmethod
     async def _connect_one(target_ip, domains) -> Optional[RawWebSocket]:
-        for domain in domains:
+        async def _try(domain):
             try:
-                return await RawWebSocket.connect(
-                    target_ip, domain, timeout=8)
+                return await RawWebSocket.connect(target_ip, domain, timeout=8)
             except WsHandshakeError as exc:
                 if exc.is_redirect:
-                    continue
+                    raise
                 return None
             except Exception:
                 return None
+
+        if not domains:
+            return None
+
+        tasks = {asyncio.create_task(_try(d)) for d in domains}
+        pending = set(tasks)
+
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for t in done:
+                try:
+                    result = t.result()
+                    if result is not None:
+                        for p in pending:
+                            p.cancel()
+                        return result
+                except WsHandshakeError:
+                    pass
+
         return None
 
     @staticmethod
@@ -428,33 +446,44 @@ async def _handle_client(reader, writer, secret: bytes):
             log.info("[%s] DC%d%s -> pool hit via %s",
                      label, dc, media_tag, target)
         else:
-            for domain in domains:
+            async def _try_domain(domain):
                 url = f'wss://{domain}/apiws'
                 log.info("[%s] DC%d%s -> %s via %s",
                          label, dc, media_tag, url, target)
                 try:
                     ws = await RawWebSocket.connect(target, domain,
                                                     timeout=ws_timeout)
+                    return ('ok', ws, domain)
+                except WsHandshakeError as exc:
+                    return ('redirect' if exc.is_redirect else 'error', exc, domain)
+                except Exception as exc:
+                    return ('error', exc, domain)
+
+            tasks = [asyncio.create_task(_try_domain(d)) for d in domains]
+            for coro in asyncio.as_completed(tasks):
+                status, result, domain = await coro
+                if status == 'ok':
+                    ws = result
                     all_redirects = False
                     break
-                except WsHandshakeError as exc:
-                    stats.ws_errors += 1
-                    if exc.is_redirect:
-                        ws_failed_redirect = True
-                        log.warning("[%s] DC%d%s got %d from %s -> %s",
-                                    label, dc, media_tag,
-                                    exc.status_code, domain,
-                                    exc.location or '?')
-                        continue
-                    else:
-                        all_redirects = False
-                        log.warning("[%s] DC%d%s WS handshake: %s",
-                                    label, dc, media_tag, exc.status_line)
-                except Exception as exc:
-                    stats.ws_errors += 1
+                stats.ws_errors += 1
+                if status == 'redirect':
+                    ws_failed_redirect = True
+                    log.warning("[%s] DC%d%s got %d from %s -> %s",
+                                label, dc, media_tag,
+                                result.status_code, domain,
+                                result.location or '?')
+                else:
                     all_redirects = False
-                    log.warning("[%s] DC%d%s WS connect failed: %s",
-                                label, dc, media_tag, exc)
+                    if isinstance(result, WsHandshakeError):
+                        log.warning("[%s] DC%d%s WS handshake: %s",
+                                    label, dc, media_tag, result.status_line)
+                    else:
+                        log.warning("[%s] DC%d%s WS connect failed: %s",
+                                    label, dc, media_tag, result)
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
 
         if ws is None:
             if ws_failed_redirect and all_redirects:

@@ -18,8 +18,6 @@ def generate_secret():
 DEFAULT_STATE = {
     "last_bat": None,
     "stopped": True,
-    "auto_add_enabled": False,
-    "auto_add_interval": 60,
     "ipv6_enabled": True,
     "socks5_enabled": False,
     "proxy_secret": None,
@@ -53,8 +51,6 @@ def save_state(**patch):
             data = {
                 "last_bat": existing.get("last_bat"),
                 "stopped": existing.get("stopped", True),
-                "auto_add_enabled": existing.get("auto_add_enabled", False),
-                "auto_add_interval": existing.get("auto_add_interval", 60),
                 "ipv6_enabled": existing.get("ipv6_enabled", True),
                 "socks5_enabled": existing.get("socks5_enabled", False),
                 "proxy_secret": existing.get("proxy_secret") or generate_secret(),
@@ -90,8 +86,6 @@ def load_state_unsafe():
             return {
                 "last_bat": data.get("last_bat"),
                 "stopped": data.get("stopped", True),
-                "auto_add_enabled": data.get("auto_add_enabled", False),
-                "auto_add_interval": data.get("auto_add_interval", 60),
                 "ipv6_enabled": data.get("ipv6_enabled", True),
                 "socks5_enabled": data.get("socks5_enabled", False),
                 "proxy_secret": data.get("proxy_secret") or generate_secret(),

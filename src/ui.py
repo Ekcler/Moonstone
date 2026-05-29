@@ -89,7 +89,6 @@ class NetworkToolsWindow(QWidget):
         self.ignore_list_editor = None
         self._tg_proxy_on = False
         self._socks5_running = False
-        self._auto_add_on = False
         self._ipv6_on = True
         self.init_ui()
         
@@ -97,21 +96,6 @@ class NetworkToolsWindow(QWidget):
         self.tg_port_input.setText(str(app_state.get("mtproto_port", 1080)))
         self.tg_host_input.setText(app_state.get("mtproto_host", "127.0.0.1"))
         self.tg_secret_input.setText(app_state.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d"))
-        
-        self._add_site_on = app_state.get("auto_add_enabled", False)
-        self.add_site_interval_input.setText(str(app_state.get("auto_add_interval", 60)))
-        if self._add_site_on:
-            self.add_site_toggle_btn.setText("OFF")
-            self.add_site_toggle_btn.setStyleSheet("""
-                QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 10px; border-radius: 4px; }
-                QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
-            """)
-        else:
-            self.add_site_toggle_btn.setText("ON")
-            self.add_site_toggle_btn.setStyleSheet("""
-                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
-                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
-            """)
         
         if app_state.get("mtproto_enabled", False):
             self._socks5_running = True
@@ -229,22 +213,6 @@ class NetworkToolsWindow(QWidget):
         layout.addWidget(self.socks5_toggle_btn)
 
         layout.addSpacing(10)
-        layout.addWidget(QLabel("AUTO ADD SITE:"))
-        add_site_row = QHBoxLayout()
-        self.add_site_toggle_btn = QPushButton("OFF")
-        self.add_site_toggle_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 10px; border-radius: 4px; }
-            QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
-        """)
-        add_site_row.addWidget(self.add_site_toggle_btn)
-        self.add_site_interval_input = QLineEdit()
-        self.add_site_interval_input.setPlaceholderText("interval (sec)")
-        self.add_site_interval_input.setFixedWidth(150)
-        add_site_row.addWidget(self.add_site_interval_input)
-        add_site_row.addStretch()
-        layout.addLayout(add_site_row)
-
-        layout.addSpacing(10)
         layout.addWidget(QLabel("DNS Optimizer & Tester:"))
         dns_input_layout = QHBoxLayout()
         self.dns_input = QLineEdit()
@@ -305,8 +273,6 @@ class NetworkToolsWindow(QWidget):
         self.apply_dns_btn.clicked.connect(self.apply_best_dns)
         self.socks5_toggle_btn.clicked.connect(self.toggle_socks5_proxy)
         self.copy_secret_btn.clicked.connect(self.copy_secret)
-        self.add_site_toggle_btn.clicked.connect(self.toggle_add_site)
-        self.add_site_interval_input.textChanged.connect(self.on_add_site_interval_changed)
         self.ipv6_toggle_btn.clicked.connect(self.toggle_ipv6)
 
     def _update_socks5_btn_state(self):
@@ -323,34 +289,6 @@ class NetworkToolsWindow(QWidget):
                 QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
                 QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
             """)
-
-    def toggle_add_site(self):
-        self._add_site_on = not self._add_site_on
-        state.save_state(auto_add_enabled=self._add_site_on)
-        if self._add_site_on:
-            self.add_site_toggle_btn.setText("OFF")
-            self.add_site_toggle_btn.setStyleSheet("""
-                QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 10px; border-radius: 4px; }
-                QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
-            """)
-            self.add_site_toggle_btn.update()
-            self.log_append("Auto add site enabled")
-        else:
-            self.add_site_toggle_btn.setText("ON")
-            self.add_site_toggle_btn.setStyleSheet("""
-                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
-                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
-            """)
-            self.add_site_toggle_btn.update()
-            self.log_append("Auto add site disabled")
-
-    def on_add_site_interval_changed(self, val):
-        try:
-            interval = int(val)
-            if interval > 0:
-                state.save_state(auto_add_interval=interval)
-        except ValueError:
-            pass
 
     def toggle_ipv6(self):
         self._ipv6_on = not self._ipv6_on
