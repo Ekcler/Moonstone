@@ -1,0 +1,8 @@
+cryptography
+pillow
+ping3
+psutil
+PyQt5
+pyinstaller
+pywin32
+requests
