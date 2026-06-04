@@ -22,9 +22,10 @@
 - Для запуска из исходного кода: Python 3.10+
 
 ## 🚀 Быстрый старт
-### 🖥️ Для пользователей (EXE)
-1. Скачайте SakuraFlow.exe из раздела [Releases](https://github.com/Ekcler/Sakura-flow/releases)
-2. Запустите SakuraFlow.exe
+### 🖥️ Для пользователей 
+1. Скачайте SakuraFlow.zip из раздела [Releases](https://github.com/Ekcler/Sakura-flow/releases)
+2. Распакуйте zip
+3. Откройте SakuraFlow.exe
 ### 💻 Для разработчиков (Source)
 1. Клонируйте репозиторий:
 ```bash
