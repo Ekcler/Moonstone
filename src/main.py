@@ -22,7 +22,7 @@ if getattr(sys, 'frozen', False):
     if str(internal_dir) not in sys.path:
         sys.path.insert(0, str(internal_dir))   
 else: 
-    file_path = Path(__file__).resolve()
+    file_path = Path(__file__).resolve()    
     BASE_DIR = file_path.parent.parent
     if str(BASE_DIR) not in sys.path:
         sys.path.insert(0, str(BASE_DIR))
@@ -41,14 +41,6 @@ except ImportError:
         from src import tg_ws_proxy
     except ImportError:
         tg_ws_proxy = None
-
-try:
-    from src.rl_watchdog import rl_watchdog
-except ImportError:
-    try:
-        from rl_watchdog import rl_watchdog
-    except ImportError:
-        rl_watchdog = None
 
 logging.basicConfig(
     filename=config.LOG_FILE,
@@ -195,10 +187,6 @@ def _main_inner():
         logging.info("[SOCKS5] Восстановление прокси после запуска")
         start_proxy_thread()
     
-    if rl_watchdog:
-        logging.info("[RL] Запуск Watchdog")
-        rl_watchdog.start()
-    
     bat_files = [
         f for f in config.BAT_DIR.glob("*.bat") 
         if f.name.lower() not in ["service.bat", "general.bat"]
@@ -207,10 +195,6 @@ def _main_inner():
     exit_code = ui.create_tray_app(bat_files, register_sleep_handler)
     
     stop_proxy_thread()
-    
-    if rl_watchdog:
-        logging.info("[RL] Остановка Watchdog")
-        rl_watchdog.stop()
     
     sys.exit(exit_code)
 

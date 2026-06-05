@@ -21,11 +21,9 @@ except Exception:
 try:
     from .config import ICON_PATH, CHECK_ICON_PATH, BASE_DIR
     from . import service, autostart, state, tools
-    from .rl_watchdog import rl_watchdog
 except ImportError:
     from src.config import ICON_PATH, CHECK_ICON_PATH, BASE_DIR
     from src import service, autostart, state, tools
-    from src.rl_watchdog import rl_watchdog
 
 
 class ListEditorWindow(QWidget):
@@ -169,13 +167,6 @@ class NetworkToolsWindow(QWidget):
         blocklist_row.addWidget(self.edit_ignore_btn)
         layout.addLayout(blocklist_row)
 
-        rl_blocklist_row = QHBoxLayout()
-        self.view_banned_btn = QPushButton("📋 Blocked RL Subnets")
-        self.unblock_subnet_btn = QPushButton("🗑️ Unblock RL Subnet")
-        rl_blocklist_row.addWidget(self.view_banned_btn)
-        rl_blocklist_row.addWidget(self.unblock_subnet_btn)
-        layout.addLayout(rl_blocklist_row)
-
         layout.addSpacing(10)
         layout.addWidget(QLabel("Network Utilities:"))
         self.host_input = QLineEdit()
@@ -274,8 +265,6 @@ class NetworkToolsWindow(QWidget):
 
         self.edit_list_btn.clicked.connect(self.open_list_editor)
         self.edit_ignore_btn.clicked.connect(self.open_ignore_editor)
-        self.view_banned_btn.clicked.connect(self.view_banned_subnets)
-        self.unblock_subnet_btn.clicked.connect(self.unblock_subnet_dialog)
         self.ping_btn.clicked.connect(self.run_ping_logic)
         self.trace_btn.clicked.connect(lambda: tools.run_tracert(self.host_input.text()) if self.host_input.text() else None)
         self.test_dns_btn.clicked.connect(self.run_custom_dns_test)
@@ -387,31 +376,6 @@ class NetworkToolsWindow(QWidget):
                 QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 5px; border-radius: 4px; }
                 QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
             """)
-
-    def view_banned_subnets(self):
-        banned = rl_watchdog.get_banned()
-        if not banned:
-            self.log_append("No blocked RL subnets", "green")
-            return
-        self.log_append(f"Blocked RL subnets ({len(banned)}):", "green")
-        for subnet in banned:
-            self.log_append(f"  {subnet}")
-
-    def unblock_subnet_dialog(self):
-        from PyQt5.QtWidgets import QInputDialog
-        text, ok = QInputDialog.getText(self, "Unblock RL Subnet",
-            "Enter IP (e.g. 1.2.3.4) or subnet (e.g. 1.2.3.0/24):")
-        if not ok or not text.strip():
-            return
-        text = text.strip()
-        if "/" in text:
-            success = rl_watchdog.unblock_subnet(text)
-        else:
-            success = rl_watchdog.unblock_ip(text)
-        if success:
-            self.log_append(f"Unblocked: {text}", "green")
-        else:
-            self.log_append(f"Failed to unblock: {text} (not banned or error)", "red")
 
     def open_list_editor(self):
         self.list_editor = ListEditorWindow(self.restart_func, "general", self.start_menu, self.actions)
