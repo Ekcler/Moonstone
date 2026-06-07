@@ -1,4 +1,4 @@
-"""Windows service management functions for Sakura Flow (Final Fix)."""
+"""Windows service management functions for Sakura Flow."""
 import subprocess
 import re
 import sys
@@ -71,7 +71,7 @@ def parse_bat_file(batch_path):
 def create_service(batch_path, display_version):
     executable, args = parse_bat_file(batch_path)
     bin_dir = Path(executable).parent
-    service_display = f"Sakura Flow DPI Bypass version[{display_version}]"
+    service_display = f"Sakura Flow version[{display_version}]"
     bin_path_value = f'cmd.exe /c "cd /d "{bin_dir}" && "{executable}" {args}"'
 
     cmd_args = [

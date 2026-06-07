@@ -1,4 +1,4 @@
-"""Main entry point for Sakura Flow application with TG Proxy."""
+"""Main entry point for Sakura Flow application."""
 import sys
 import os
 import logging

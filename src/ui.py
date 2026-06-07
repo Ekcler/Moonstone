@@ -1,4 +1,4 @@
-"""UI/Tray interface functions for Sakura Flow by Ekcler."""
+"""UI/Tray interface functions for Sakura Flow."""
 import subprocess
 import re
 import sys
@@ -89,7 +89,8 @@ class NetworkToolsWindow(QWidget):
         self.ignore_list_editor = None
         self._tg_proxy_on = False
         self._socks5_running = False
-        self._ipv6_on = state.load_state().get("ipv6_enabled", True)
+        self._ipv6_on = not tools.is_ipv6_disabled()
+        state.save_state(ipv6_enabled=self._ipv6_on)
         self.init_ui()
         
         app_state = state.load_state()
@@ -119,7 +120,7 @@ class NetworkToolsWindow(QWidget):
         QMetaObject.invokeMethod(self.log_area, "append", Qt.QueuedConnection, Q_ARG(str, html))
 
     def init_ui(self):
-        self.setWindowTitle("Sakura Flow Tools by Ekcler")
+        self.setWindowTitle("Sakura Flow")
         self.setFixedSize(450, 750)
         self.setWindowIcon(QIcon(str(ICON_PATH)))
         self.setWindowFlags(Qt.Window)

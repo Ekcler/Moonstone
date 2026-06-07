@@ -15,7 +15,7 @@ VSVersionInfo(
       StringTable(
         u'040904B0',
         [StringStruct(u'CompanyName', u'Ekcler'),
-        StringStruct(u'FileDescription', u'Sakura Flow DPI Bypass Application'),
+        StringStruct(u'FileDescription', u'Sakura Flow Application'),
         StringStruct(u'FileVersion', u'3.2.9.0'),
         StringStruct(u'InternalName', u'SakuraFlow'),
         StringStruct(u'LegalCopyright', u'\xa9 Ekcler. All rights reserved.'),
