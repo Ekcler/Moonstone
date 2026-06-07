@@ -5,7 +5,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-
+6
 try:
     import win32api
     import win32con
@@ -105,7 +105,7 @@ def on_wake():
     app_state = state.load_state()
     auto_switch = app_state.get("auto_switch_enabled", False)
     
-    if app_state.get("socks5_enabled", False) or auto_switch:
+    if app_state.get("mtproto_enabled", False) or auto_switch:
         time.sleep(3)
         try:
             if auto_switch:
@@ -183,9 +183,6 @@ def _main_inner():
         host = app_state.get("mtproto_host", "127.0.0.1")
         secret = app_state.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d")
         tools.start_socks5_proxy(port=port, host=host, secret=secret)
-    elif app_state.get("socks5_enabled", False):
-        logging.info("[SOCKS5] Восстановление прокси после запуска")
-        start_proxy_thread()
     
     bat_files = [
         f for f in config.BAT_DIR.glob("*.bat") 

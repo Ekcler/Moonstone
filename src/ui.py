@@ -89,7 +89,7 @@ class NetworkToolsWindow(QWidget):
         self.ignore_list_editor = None
         self._tg_proxy_on = False
         self._socks5_running = False
-        self._ipv6_on = True
+        self._ipv6_on = state.load_state().get("ipv6_enabled", True)
         self.init_ui()
         
         app_state = state.load_state()
@@ -235,11 +235,18 @@ class NetworkToolsWindow(QWidget):
 
         layout.addSpacing(10)
         layout.addWidget(QLabel("IPv6:"))
-        self.ipv6_toggle_btn = QPushButton("ON")
-        self.ipv6_toggle_btn.setStyleSheet("""
-            QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
-            QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
-        """)
+        if self._ipv6_on:
+            self.ipv6_toggle_btn = QPushButton("ON")
+            self.ipv6_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
+            """)
+        else:
+            self.ipv6_toggle_btn = QPushButton("OFF")
+            self.ipv6_toggle_btn.setStyleSheet("""
+                QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 10px; border-radius: 4px; }
+                QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
+            """)
         layout.addWidget(self.ipv6_toggle_btn)
         
         ipv6_warning = QLabel("⚠️ turn off if bypass does not work")

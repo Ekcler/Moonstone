@@ -20,14 +20,14 @@ except ImportError:
 
 _last_io = None
 LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-general.txt"
-EXCLUDE_LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-exclude.txt"
+EXCLUDE_LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-exclude-user.txt"
 
 _saved_state = state.load_state()
-MTPROTO_ENABLED = _saved_state.get("socks5_enabled", False)
+MTPROTO_ENABLED = _saved_state.get("mtproto_enabled", False)
 
 
-def is_socks5_enabled():
-    return state.load_state().get("socks5_enabled", False)
+def is_mtproto_enabled():
+    return state.load_state().get("mtproto_enabled", False)
 
 
 _proxies = {}
@@ -148,14 +148,14 @@ def reset_system_dns():
         return False, str(e)
 
 
-def set_socks5_enabled(enabled):
+def set_mtproto_enabled(enabled):
     global MTPROTO_ENABLED
     MTPROTO_ENABLED = enabled
-    state.save_state(socks5_enabled=enabled)
+    state.save_state(mtproto_enabled=enabled)
     logging.info(f"[MTPROTO] Enabled: {enabled}")
 
 
-def get_socks5_enabled():
+def get_mtproto_enabled():
     return MTPROTO_ENABLED
 
 
@@ -321,7 +321,7 @@ def start_socks5_proxy(port=1080, host='127.0.0.1', secret=None):
         }
     
     if _check_proxy_traffic(port):
-        set_socks5_enabled(True)
+        set_mtproto_enabled(True)
         logging.info(f"[MTPROTO] Proxy start: {host}:{port}")
         return True, None
     else:
@@ -364,7 +364,7 @@ def stop_socks5_proxy(port, host='127.0.0.1'):
             
             logging.info(f"[MTPROTO] Proxy {host}:{port} stopped")
         
-        set_socks5_enabled(False)
+        set_mtproto_enabled(False)
         return True
 
 
@@ -420,7 +420,7 @@ def stop_all_proxies():
             except Exception as e:
                 logging.error(f"[MTPROTO] Error stopping {key}: {e}")
         _proxies.clear()
-    set_socks5_enabled(False)
+    set_mtproto_enabled(False)
 
 
 def _stop_all_proxies():
