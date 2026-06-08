@@ -20,7 +20,7 @@ if getattr(sys, 'frozen', False):
         sys.path.insert(0, str(BASE_DIR))
     internal_dir = BASE_DIR / "_internal"
     if str(internal_dir) not in sys.path:
-        sys.path.insert(0, str(internal_dir))   
+        sys.path.insert(0, str(internal_dir))
 else: 
     file_path = Path(__file__).resolve()    
     BASE_DIR = file_path.parent.parent
