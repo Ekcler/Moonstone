@@ -25,6 +25,7 @@
 1. Скачайте SakuraFlow.zip из раздела [Releases](https://github.com/Ekcler/Sakura-flow/releases)
 2. Распакуйте zip в удобную папку
 3. Откройте Sakuraflow.exe
+4. Приложение находиться в трее
 ### 💻 Для разработчиков (Source)
 1. Клонируйте репозиторий:
 ```bash
