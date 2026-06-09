@@ -456,6 +456,34 @@ def update_menu_styles(start_menu, actions, active_version):
             action.setIcon(QIcon())
 
 
+def _show_first_run():
+    from PyQt5.QtCore import Qt
+    msg = QMessageBox()
+    msg.setWindowTitle("Sakura Flow")
+    msg.setWindowIcon(QIcon(str(ICON_PATH)))
+    msg.setTextFormat(Qt.RichText)
+    msg.setText(
+        "<b>\U0001F338 Sakura Flow запущен</b><br><br>"
+        "Приложение свернуто в <b>системный трей</b> \U0001F4CD<br>"
+        "(область уведомлений рядом с часами).<br><br>"
+        "\u2460 Нажми на иконку \U0001F338 \u2014 откроется меню<br>"
+        "\u2461 Выбери <b>\u26A1 Start</b> \u2014 включится обход блокировок<br>"
+        "\u2462 Готово \u2705 YouTube, Discord, Rocket League \u2014 вс\u0451 работает.<br><br>"
+        "<b>Для Telegram:</b><br>"
+        "\u2463 Открой \U0001F6E0\uFE0F Network Tools<br>"
+        "\u2464 Нажми <b>Copy</b> \U0001F4CB \u2014 секрет скопирован<br>"
+        "\u2465 В Telegram: Настройки \u2192 Продвинутые \u2192 Прокси \u2192 MTProto<br>"
+        "\u2466 Вставь данные:<br>"
+        "&nbsp;&nbsp;&nbsp;<b>Host:</b> 127.0.0.1<br>"
+        "&nbsp;&nbsp;&nbsp;<b>Port:</b> 1443<br>"
+        "&nbsp;&nbsp;&nbsp;<b>Secret:</b> (вставь скопированное)<br>"
+        "\u2467 Нажми <b>\u25B6\uFE0F START</b><br><br>"
+        "\u2757 <i>Это сообщение показывается только при первом запуске.</i>"
+    )
+    msg.exec_()
+    state.save_state(first_run=False)
+
+
 def create_tray_app(bat_files, register_sleep_handler=None):
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
@@ -463,6 +491,10 @@ def create_tray_app(bat_files, register_sleep_handler=None):
 
     tray = QSystemTrayIcon(QIcon(str(ICON_PATH)))
     tray.show()
+
+    app_state = state.load_state()
+    if app_state.get("first_run", False):
+        QTimer.singleShot(500, _show_first_run)
 
     menu = QMenu()
     menu.setStyleSheet("""

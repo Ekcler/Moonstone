@@ -18,6 +18,7 @@ def generate_secret():
 DEFAULT_STATE = {
     "last_bat": None,
     "stopped": True,
+    "first_run": True,
     "ipv6_enabled": True,
     "proxy_secret": None,
     "mtproto_enabled": False,
@@ -50,6 +51,7 @@ def save_state(**patch):
             data = {
                 "last_bat": existing.get("last_bat"),
                 "stopped": existing.get("stopped", True),
+                "first_run": existing.get("first_run", False),
                 "ipv6_enabled": existing.get("ipv6_enabled", True),
                 "proxy_secret": existing.get("proxy_secret") or generate_secret(),
                 "mtproto_enabled": existing.get("mtproto_enabled", False),
@@ -84,6 +86,7 @@ def load_state_unsafe():
             return {
                 "last_bat": data.get("last_bat"),
                 "stopped": data.get("stopped", True),
+                "first_run": data.get("first_run", False),
                 "ipv6_enabled": data.get("ipv6_enabled", True),
                 "proxy_secret": data.get("proxy_secret") or generate_secret(),
                 "mtproto_enabled": data.get("mtproto_enabled", False),

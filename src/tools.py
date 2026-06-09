@@ -420,7 +420,7 @@ def stop_all_proxies():
             except Exception as e:
                 logging.error(f"[MTPROTO] Error stopping {key}: {e}")
         _proxies.clear()
-    set_mtproto_enabled(False)
+    logging.info("[MTPROTO] All proxies stopped")
 
 
 def _stop_all_proxies():

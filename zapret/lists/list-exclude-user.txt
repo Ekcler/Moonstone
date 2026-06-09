@@ -62,3 +62,7 @@ pinimg.com
 epicgames.com
 rocketleague.com
 psyonix.com
+epicgames.dev
+eosgameservices.com
+unrealengine.com
+eas.io
