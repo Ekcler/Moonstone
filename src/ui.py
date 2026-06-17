@@ -623,6 +623,6 @@ def create_tray_app(bat_files, register_sleep_handler=None):
 
     sync_timer = QTimer()
     sync_timer.timeout.connect(sync_start_btn)
-    sync_timer.start(2000)
+    sync_timer.start(1000)
 
     return app.exec_()
