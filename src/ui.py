@@ -511,7 +511,8 @@ def _show_first_run():
         "\u2462 Готово \u2705 YouTube, Discord, Rocket League \u2014 вс\u0451 работает.<br>"
         "&nbsp;&nbsp;&nbsp;<b>GameFilter:</b> TCP+UDP (рекомендуется) \u2699\uFE0F<br>"
         "&nbsp;&nbsp;&nbsp;<b>IPSet:</b> any (рекомендуется) \u2699\uFE0F<br>"
-        "&nbsp;&nbsp;&nbsp;Настройки в \U0001F6E0\uFE0F Network Tools \u2192 GameFilter / IPSet<br><br>"
+        "&nbsp;&nbsp;&nbsp;Настройки в \U0001F6E0\uFE0F Network Tools \u2192 GameFilter / IPSet<br>"
+        "&nbsp;&nbsp;&nbsp;\u26A0\uFE0F После изменения GameFilter или IPSet — перезапусти обход (Stop \u2192 Start в трее)<br><br>"
         "<b>Для Telegram:</b><br>"
         "\u2463 Открой \U0001F6E0\uFE0F Network Tools<br>"
         "\u2464 Нажми <b>Copy</b> \U0001F4CB \u2014 секрет скопирован<br>"
@@ -616,5 +617,12 @@ def create_tray_app(bat_files, register_sleep_handler=None):
 
     tray.activated.connect(lambda r: menu.popup(QCursor.pos()) if r in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick) else None)
     tray.setContextMenu(menu)
+
+    def sync_start_btn():
+        update_start_btn(start_btn, tools.is_winws_running())
+
+    sync_timer = QTimer()
+    sync_timer.timeout.connect(sync_start_btn)
+    sync_timer.start(2000)
 
     return app.exec_()
