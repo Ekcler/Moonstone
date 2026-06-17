@@ -74,7 +74,9 @@ class ListEditorWindow(QWidget):
         service.delete_service()
         if self.start_menu and self.actions:
             update_menu_styles(self.start_menu, self.actions, None)
-        QMessageBox.information(self, "Success", "List updated! Service stopped.")
+        if self.restart_func:
+            self.restart_func()
+        QMessageBox.information(self, "Success", "List updated! Service restarted.")
         self.close()
 
 
@@ -88,23 +90,26 @@ class NetworkToolsWindow(QWidget):
         self.list_editor = None
         self.ignore_list_editor = None
         self._tg_proxy_on = False
-        self._socks5_running = False
+        self._mtproto_running = False
         self._ipv6_on = not tools.is_ipv6_disabled()
         state.save_state(ipv6_enabled=self._ipv6_on)
         self.init_ui()
         
         app_state = state.load_state()
-        self.tg_port_input.setText(str(app_state.get("mtproto_port", 1080)))
+        self.tg_port_input.setText(str(app_state.get("mtproto_port", 1443)))
         self.tg_host_input.setText(app_state.get("mtproto_host", "127.0.0.1"))
         self.tg_secret_input.setText(app_state.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d"))
         
         if app_state.get("mtproto_enabled", False):
-            self._socks5_running = True
-            self.socks5_toggle_btn.setText("STOP")
-            self.socks5_toggle_btn.setStyleSheet("""
+            self._mtproto_running = True
+            self.mtproto_toggle_btn.setText("STOP")
+            self.mtproto_toggle_btn.setStyleSheet("""
                 QPushButton { background-color: rgba(255, 77, 136, 0.25); border: 1px solid #ff4d88; color: #ff7aa2; font-weight: bold; padding: 10px; border-radius: 4px; }
                 QPushButton:hover { background-color: rgba(255, 122, 162, 0.35); border: 1px solid #ff7aa2; }
             """)
+        
+        self.game_filter_btn.setText(self._get_game_filter_label())
+        self.ipset_btn.setText(self._get_ipset_label())
         
         self.log_area.append("Ready!")
         self.timer = QTimer()
@@ -168,6 +173,21 @@ class NetworkToolsWindow(QWidget):
         blocklist_row.addWidget(self.edit_ignore_btn)
         layout.addLayout(blocklist_row)
 
+        filter_row = QHBoxLayout()
+        self.game_filter_btn = QPushButton(self._get_game_filter_label())
+        self.game_filter_btn.setStyleSheet("""
+            QPushButton { background-color: rgba(243, 156, 18, 0.2); border: 1px solid rgba(243, 156, 18, 0.5); color: #f1c40f; font-weight: bold; padding: 10px; border-radius: 4px; }
+            QPushButton:hover { background-color: rgba(243, 156, 18, 0.35); border: 1px solid #f39c12; }
+        """)
+        self.ipset_btn = QPushButton(self._get_ipset_label())
+        self.ipset_btn.setStyleSheet("""
+            QPushButton { background-color: rgba(0, 210, 211, 0.2); border: 1px solid rgba(0, 210, 211, 0.5); color: #00d2d3; font-weight: bold; padding: 10px; border-radius: 4px; }
+            QPushButton:hover { background-color: rgba(0, 210, 211, 0.35); border: 1px solid #00d2d3; }
+        """)
+        filter_row.addWidget(self.game_filter_btn)
+        filter_row.addWidget(self.ipset_btn)
+        layout.addLayout(filter_row)
+
         layout.addSpacing(10)
         layout.addWidget(QLabel("Network Utilities:"))
         self.host_input = QLineEdit()
@@ -179,6 +199,12 @@ class NetworkToolsWindow(QWidget):
         net_btn_layout.addWidget(self.ping_btn)
         net_btn_layout.addWidget(self.trace_btn)
         layout.addLayout(net_btn_layout)
+        self.clear_discord_btn = QPushButton("🧹 Clear Discord Cache")
+        self.clear_discord_btn.setStyleSheet("""
+            QPushButton { background-color: rgba(50, 90, 180, 0.25); border: 1px solid rgba(70, 130, 255, 0.5); color: #7aa2ff; font-weight: bold; padding: 8px; border-radius: 4px; }
+            QPushButton:hover { background-color: rgba(70, 130, 255, 0.35); border: 1px solid #5a8fff; }
+        """)
+        layout.addWidget(self.clear_discord_btn)
 
         layout.addSpacing(10)
         layout.addWidget(QLabel("MTPROTO PROXY:"))
@@ -206,12 +232,12 @@ class NetworkToolsWindow(QWidget):
         secret_layout.addWidget(self.copy_secret_btn)
         layout.addLayout(secret_layout)
 
-        self.socks5_toggle_btn = QPushButton("START")
-        self.socks5_toggle_btn.setStyleSheet("""
+        self.mtproto_toggle_btn = QPushButton("START")
+        self.mtproto_toggle_btn.setStyleSheet("""
             QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
             QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
         """)
-        layout.addWidget(self.socks5_toggle_btn)
+        layout.addWidget(self.mtproto_toggle_btn)
 
         layout.addSpacing(10)
         layout.addWidget(QLabel("DNS Optimizer & Tester:"))
@@ -279,24 +305,12 @@ class NetworkToolsWindow(QWidget):
         self.dns_best_btn.clicked.connect(self.run_best_dns_test)
         self.reset_dns_btn.clicked.connect(self.run_reset_dns)
         self.apply_dns_btn.clicked.connect(self.apply_best_dns)
-        self.socks5_toggle_btn.clicked.connect(self.toggle_socks5_proxy)
+        self.mtproto_toggle_btn.clicked.connect(self.toggle_mtproto_proxy)
         self.copy_secret_btn.clicked.connect(self.copy_secret)
         self.ipv6_toggle_btn.clicked.connect(self.toggle_ipv6)
-
-    def _update_socks5_btn_state(self):
-        """Update button state based on actual proxy status."""
-        if tools.is_any_proxy_running():
-            self.socks5_toggle_btn.setText("STOP")
-            self.socks5_toggle_btn.setStyleSheet("""
-                QPushButton { background-color: rgba(255, 77, 136, 0.25); border: 1px solid #ff4d88; color: #ff7aa2; font-weight: bold; padding: 10px; border-radius: 4px; }
-                QPushButton:hover { background-color: rgba(255, 122, 162, 0.35); border: 1px solid #ff7aa2; }
-            """)
-        else:
-            self.socks5_toggle_btn.setText("START")
-            self.socks5_toggle_btn.setStyleSheet("""
-                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
-                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
-            """)
+        self.clear_discord_btn.clicked.connect(self.clear_discord_cache)
+        self.game_filter_btn.clicked.connect(self.toggle_game_filter)
+        self.ipset_btn.clicked.connect(self.toggle_ipset)
 
     def toggle_ipv6(self):
         self._ipv6_on = not self._ipv6_on
@@ -319,35 +333,64 @@ class NetworkToolsWindow(QWidget):
             self.log_append("IPv6 disabled")
         self.log_append("Restart required for changes to take effect")
 
+    def _get_game_filter_label(self):
+        mode = tools.get_game_filter_mode()
+        return {"disabled": "OFF", "all": "TCP+UDP", "tcp": "TCP", "udp": "UDP"}.get(mode, "OFF")
+
+    def _get_ipset_label(self):
+        return tools.get_ipset_status()
+
+    def toggle_game_filter(self):
+        current = tools.get_game_filter_mode()
+        order = ["disabled", "all", "tcp", "udp"]
+        next_mode = order[(order.index(current) + 1) % 4]
+        if not tools.set_game_filter_mode(next_mode):
+            self.log_append(f"[GameFilter] Warning: verification failed for {next_mode}", "red")
+        self.game_filter_btn.setText(self._get_game_filter_label())
+        state.save_state(game_filter_mode=next_mode)
+        self.log_append(f"GameFilter: {next_mode}")
+        self.log_append("Restart required to apply")
+
+    def toggle_ipset(self):
+        current = tools.get_ipset_status()
+        order = ["any", "none", "loaded"]
+        next_mode = order[(order.index(current) + 1) % 3]
+        if not tools.set_ipset_mode(next_mode):
+            self.log_append(f"[IPSet] Warning: verification failed for {next_mode}", "red")
+        self.ipset_btn.setText(self._get_ipset_label())
+        state.save_state(ipset_mode=next_mode)
+        self.log_append(f"IPSet: {next_mode}")
+        self.log_append("Restart required to apply")
+
+    def clear_discord_cache(self):
+        self.log_append("Clearing Discord cache...")
+        def _task():
+            result = tools.clear_discord_cache()
+            self.log_append(f"[Discord] {result}")
+        threading.Thread(target=_task, daemon=True).start()
+
     def copy_secret(self):
         secret = self.tg_secret_input.text().strip()
         QApplication.clipboard().setText(secret)
         self.log_append(f"Secret copied: {secret}")
 
-    def toggle_socks5_proxy(self):
+    def toggle_mtproto_proxy(self):
         port = int(self.tg_port_input.text().strip() or "1080")
         host = self.tg_host_input.text().strip() or "127.0.0.1"
         secret = self.tg_secret_input.text().strip() or "efac191ac9b83e4c0c8c4e5e7c6a6b6d"
         
-        state.save_state(
-            mtproto_enabled=True,
-            mtproto_port=port,
-            mtproto_host=host,
-            mtproto_secret=secret
-        )
-        
         self.log_append(f"[DEBUG] toggle_mtproto: {host}:{port}")
         
-        if self.socks5_toggle_btn.text() == "STOP":
+        if self.mtproto_toggle_btn.text() == "STOP":
             self.log_append("Stopping MTPROTO proxy...")
-            self.socks5_toggle_btn.setText("START")
-            self.socks5_toggle_btn.setStyleSheet("""
+            self.mtproto_toggle_btn.setText("START")
+            self.mtproto_toggle_btn.setStyleSheet("""
                 QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 10px; border-radius: 4px; }
                 QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
             """)
             def do_stop():
                 try:
-                    tools.stop_socks5_proxy(port=port, host=host)
+                    tools.stop_mtproto_proxy(port=port, host=host)
                     state.save_state(mtproto_enabled=False)
                     self.log_append("MTPROTO proxy stopped", "green")
                 except Exception as e:
@@ -355,35 +398,27 @@ class NetworkToolsWindow(QWidget):
             threading.Thread(target=do_stop, daemon=True).start()
         else:
             self.log_append("Starting MTPROTO proxy...")
-            self.socks5_toggle_btn.setText("STOP")
-            self.socks5_toggle_btn.setStyleSheet("""
+            self.mtproto_toggle_btn.setText("STOP")
+            self.mtproto_toggle_btn.setStyleSheet("""
                 QPushButton { background-color: rgba(255, 77, 136, 0.25); border: 1px solid #ff4d88; color: #ff7aa2; font-weight: bold; padding: 10px; border-radius: 4px; }
                 QPushButton:hover { background-color: rgba(255, 122, 162, 0.35); border: 1px solid #ff7aa2; }
             """)
             def do_start():
                 try:
-                    success = tools.start_socks5_proxy(port=port, host=host, secret=secret)
-                    if success:
+                    ok = tools.start_mtproto_proxy(port=port, host=host, secret=secret)
+                    if ok:
+                        state.save_state(
+                            mtproto_enabled=True,
+                            mtproto_port=port,
+                            mtproto_host=host,
+                            mtproto_secret=secret
+                        )
                         self.log_append("MTPROTO proxy started", "green")
                     else:
                         self.log_append(f"Failed to start MTPROTO proxy on {host}:{port}", "red")
                 except Exception as e:
                     self.log_append(f"ERROR: {e}", "red")
             threading.Thread(target=do_start, daemon=True).start()
-
-    def update_proxy_btn_state(self, btn, is_on):
-        if is_on:
-            btn.setText("ON")
-            btn.setStyleSheet("""
-                QPushButton { background-color: rgba(45, 80, 60, 0.5); border: 1px solid rgba(123, 237, 159, 0.4); color: #7bed9f; font-weight: bold; padding: 5px; border-radius: 4px; }
-                QPushButton:hover { background-color: rgba(46, 213, 115, 0.25); border: 1px solid #2ed573; }
-            """)
-        else:
-            btn.setText("OFF")
-            btn.setStyleSheet("""
-                QPushButton { background-color: rgba(180, 60, 80, 0.4); border: 1px solid rgba(255, 85, 85, 0.4); color: #ff6b6b; font-weight: bold; padding: 5px; border-radius: 4px; }
-                QPushButton:hover { background-color: rgba(255, 77, 136, 0.3); border: 1px solid #ff4d88; }
-            """)
 
     def open_list_editor(self):
         self.list_editor = ListEditorWindow(self.restart_func, "general", self.start_menu, self.actions)
@@ -394,6 +429,11 @@ class NetworkToolsWindow(QWidget):
         self.ignore_list_editor = ListEditorWindow(self.restart_func, "ignore", self.start_menu, self.actions)
         self.ignore_list_editor.show()
         self.ignore_list_editor.activateWindow()
+
+    def closeEvent(self, event):
+        global tools_window
+        tools_window = None
+        event.accept()
 
     def update_stats(self):
         up, down = tools.get_traffic_stats()
@@ -468,7 +508,10 @@ def _show_first_run():
         "(область уведомлений рядом с часами).<br><br>"
         "\u2460 Нажми на иконку \U0001F338 \u2014 откроется меню<br>"
         "\u2461 Выбери <b>\u26A1 Start</b> \u2014 включится обход блокировок<br>"
-        "\u2462 Готово \u2705 YouTube, Discord, Rocket League \u2014 вс\u0451 работает.<br><br>"
+        "\u2462 Готово \u2705 YouTube, Discord, Rocket League \u2014 вс\u0451 работает.<br>"
+        "&nbsp;&nbsp;&nbsp;<b>GameFilter:</b> TCP+UDP (рекомендуется) \u2699\uFE0F<br>"
+        "&nbsp;&nbsp;&nbsp;<b>IPSet:</b> any (рекомендуется) \u2699\uFE0F<br>"
+        "&nbsp;&nbsp;&nbsp;Настройки в \U0001F6E0\uFE0F Network Tools \u2192 GameFilter / IPSet<br><br>"
         "<b>Для Telegram:</b><br>"
         "\u2463 Открой \U0001F6E0\uFE0F Network Tools<br>"
         "\u2464 Нажми <b>Copy</b> \U0001F4CB \u2014 секрет скопирован<br>"
@@ -520,8 +563,15 @@ def create_tray_app(bat_files, register_sleep_handler=None):
     def toggle_strategy(btn, actions):
         """Toggle strategy on/off."""
         if tools.is_winws_running():
-            state.save_state(last_bat=None, stopped=True)
-            threading.Thread(target=lambda: (service.stop_service(), service.delete_service(), update_start_btn(btn, False)), daemon=True).start()
+            def do_stop():
+                try:
+                    service.stop_service()
+                    service.delete_service()
+                    state.save_state(last_bat=None, stopped=True)
+                except Exception as e:
+                    logging.error(f"[toggle_strategy] Stop error: {e}")
+                update_start_btn(btn, False)
+            threading.Thread(target=do_stop, daemon=True).start()
         else:
             app_state = state.load_state()
             last_bat = app_state.get("last_bat")

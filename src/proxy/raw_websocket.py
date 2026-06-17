@@ -19,8 +19,6 @@ _st_H = struct.Struct('>H')
 _st_Q = struct.Struct('>Q')
 
 _ssl_ctx = ssl.create_default_context()
-_ssl_ctx.check_hostname = False
-_ssl_ctx.verify_mode = ssl.CERT_NONE
 
 
 class WsHandshakeError(Exception):

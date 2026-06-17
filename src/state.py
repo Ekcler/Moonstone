@@ -24,10 +24,10 @@ DEFAULT_STATE = {
     "mtproto_enabled": False,
     "mtproto_port": 1443,
     "mtproto_host": "127.0.0.1",
-    "mtproto_secret": None
+    "mtproto_secret": None,
+    "game_filter_mode": None,
+    "ipset_mode": None
 }
-
-DEFAULT_PROXIES = [{"port": 1443, "host": "127.0.0.1", "secret": ""}]
 
 _lock = threading.Lock()
 
@@ -57,7 +57,9 @@ def save_state(**patch):
                 "mtproto_enabled": existing.get("mtproto_enabled", False),
                 "mtproto_port": existing.get("mtproto_port", 1443),
                 "mtproto_host": existing.get("mtproto_host", "127.0.0.1"),
-                "mtproto_secret": existing.get("mtproto_secret") or generate_secret()
+                "mtproto_secret": existing.get("mtproto_secret") or generate_secret(),
+                "game_filter_mode": existing.get("game_filter_mode"),
+                "ipset_mode": existing.get("ipset_mode")
             }
             
             tmp_file = STATE_FILE.with_suffix(".tmp")
@@ -92,7 +94,9 @@ def load_state_unsafe():
                 "mtproto_enabled": data.get("mtproto_enabled", False),
                 "mtproto_port": data.get("mtproto_port", 1443),
                 "mtproto_host": data.get("mtproto_host", "127.0.0.1"),
-                "mtproto_secret": data.get("mtproto_secret") or generate_secret()
+                "mtproto_secret": data.get("mtproto_secret") or generate_secret(),
+                "game_filter_mode": data.get("game_filter_mode"),
+                "ipset_mode": data.get("ipset_mode")
             }
     except Exception as e:
         logging.warning(f"Failed to load state, using defaults: {e}")

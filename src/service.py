@@ -64,6 +64,7 @@ def parse_bat_file(batch_path):
     for macro, real_path in replacements.items():
         args = args.replace(macro, real_path)
 
+    args = re.sub(r'--ipset=[^\s]+', '', args)
     args = args.replace("\\\\", "\\")
     return executable, args
 

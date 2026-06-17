@@ -22,10 +22,6 @@ _last_io = None
 LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-general.txt"
 EXCLUDE_LIST_PATH = BASE_DIR / "zapret" / "lists" / "list-exclude-user.txt"
 
-_saved_state = state.load_state()
-MTPROTO_ENABLED = _saved_state.get("mtproto_enabled", False)
-
-
 def is_mtproto_enabled():
     return state.load_state().get("mtproto_enabled", False)
 
@@ -131,7 +127,7 @@ def set_system_dns(dns_ip):
     if not iface:
         return False, "Interface not found"
     try:
-        subprocess.run(f'netsh interface ip set dns name="{iface}" source=static address={dns_ip}', shell=True, capture_output=True)
+        subprocess.run(['netsh', 'interface', 'ip', 'set', 'dns', f'name={iface}', 'source=static', f'address={dns_ip}'], capture_output=True)
         return True, iface
     except Exception as e:
         return False, str(e)
@@ -142,21 +138,19 @@ def reset_system_dns():
     if not iface:
         return False, "Interface not found"
     try:
-        subprocess.run(f'netsh interface ip set dns name="{iface}" source=dhcp', shell=True, capture_output=True)
+        subprocess.run(['netsh', 'interface', 'ip', 'set', 'dns', f'name={iface}', 'source=dhcp'], capture_output=True)
         return True, iface
     except Exception as e:
         return False, str(e)
 
 
 def set_mtproto_enabled(enabled):
-    global MTPROTO_ENABLED
-    MTPROTO_ENABLED = enabled
     state.save_state(mtproto_enabled=enabled)
     logging.info(f"[MTPROTO] Enabled: {enabled}")
 
 
 def get_mtproto_enabled():
-    return MTPROTO_ENABLED
+    return is_mtproto_enabled()
 
 
 def _get_process_using_port(port):
@@ -174,14 +168,14 @@ def _get_process_using_port(port):
         return None
 
 
-def start_socks5_proxy(port=1080, host='127.0.0.1', secret=None):
+def start_mtproto_proxy(port=1080, host='127.0.0.1', secret=None):
     global _proxies
     
     key = (host, port)
     
     with _proxy_lock:
         if key in _proxies and _proxies[key]['thread'] and _proxies[key]['thread'].is_alive():
-            if _check_proxy_traffic(port):
+            if _check_mtproto_traffic(port):
                 logging.info(f"[MTPROTO] Proxy {host}:{port} already running")
                 return True
             else:
@@ -193,8 +187,6 @@ def start_socks5_proxy(port=1080, host='127.0.0.1', secret=None):
 
     logging.debug(f"[MTPROTO] Proxy {host}:{port} starting...")
 
-    run_error = None
-    
     try:
         from src.proxy.config import proxy_config
         from src import tg_ws_proxy
@@ -233,15 +225,15 @@ def start_socks5_proxy(port=1080, host='127.0.0.1', secret=None):
             if proc_info:
                 reason = f"Port {port} already used by: {proc_info}"
                 logging.error(f"[MTPROTO] {reason}")
-                return False, reason
+                return False
             else:
                 reason = f"Port {port} already in use: {e}"
                 logging.error(f"[MTPROTO] {reason}")
-                return False, reason
+                return False
     
     import asyncio
     stop_event = asyncio.Event()
-    thread_error = [None]
+    thread_error: list = [None]
     
     def _run():
         loop = None
@@ -278,7 +270,6 @@ def start_socks5_proxy(port=1080, host='127.0.0.1', secret=None):
                 logging.info("[MTPROTO] run_until_complete returned")
             except Exception as e:
                 logging.error(f"[MTPROTO] run_until_complete error: {e}", exc_info=True)
-                run_error = str(e)
                 raise
             finally:
                 logging.info(f"[MTPROTO] Closing loop")
@@ -304,12 +295,22 @@ def start_socks5_proxy(port=1080, host='127.0.0.1', secret=None):
     thread.start()
     logging.info(f"[MTPROTO] Thread started, waiting for server...")
     
-    time.sleep(0.5)
-    
-    if thread_error[0]:
-        reason = f"Startup error: {thread_error[0]}"
+    for _ in range(10):
+        if thread_error[0]:
+            reason = f"Startup error: {thread_error[0]}"
+            logging.error(f"[MTPROTO] Proxy failed to start - {reason}")
+            return False
+        if _check_mtproto_traffic(port):
+            break
+        time.sleep(0.5)
+    else:
+        if thread_error[0]:
+            reason = f"Startup error: {thread_error[0]}"
+            logging.error(f"[MTPROTO] Proxy failed to start - {reason}")
+            return False
+        reason = "Port not listening after 5s"
         logging.error(f"[MTPROTO] Proxy failed to start - {reason}")
-        return False, reason
+        return False
     
     with _proxy_lock:
         _proxies[key] = {
@@ -320,114 +321,57 @@ def start_socks5_proxy(port=1080, host='127.0.0.1', secret=None):
             'running': True
         }
     
-    if _check_proxy_traffic(port):
-        set_mtproto_enabled(True)
-        logging.info(f"[MTPROTO] Proxy start: {host}:{port}")
-        return True, None
-    else:
-        reason = "Port not listening or no traffic received"
-        logging.error(f"[MTPROTO] Proxy failed to start - {reason}")
-        return False, reason
+    set_mtproto_enabled(True)
+    logging.info(f"[MTPROTO] Proxy start: {host}:{port}")
+    return True
 
 
-def stop_socks5_proxy(port, host='127.0.0.1'):
+def stop_mtproto_proxy(port, host='127.0.0.1'):
     global _proxies
     
-    logging.info(f"[DEBUG] stop_socks5_proxy called: {host}:{port}")
+    logging.info(f"[MTPROTO] stop_mtproto_proxy called: {host}:{port}")
     
     key = (host, port)
     
+    proxy = None
     with _proxy_lock:
-        proxy = _proxies.get(key)
+        proxy = _proxies.pop(key, None)
+    
+    if proxy:
+        try:
+            stop_evt = proxy.get('stop_event')
+            thread = proxy.get('thread')
+            if stop_evt:
+                stop_evt.set()
+            if thread:
+                thread.join(timeout=3)
+        except Exception as e:
+            logging.error(f"[MTPROTO] Stop error: {e}")
         
-        logging.info(f"[DEBUG] stop_socks5_proxy: proxy={proxy}")
-        
-        if proxy:
-            try:
-                stop_evt = proxy.get('stop_event')
-                logging.info(f"[DEBUG] stop_socks5_proxy: stop_event={stop_evt}")
-                if stop_evt:
-                    stop_evt.set()
-                    logging.info(f"[DEBUG] stop_event.set() called")
-                thread = proxy.get('thread')
-                if thread:
-                    logging.info(f"[DEBUG] join thread, alive={thread.is_alive()}")
-                    thread.join(timeout=3)
-                    logging.info(f"[DEBUG] thread joined")
-            except Exception as e:
-                logging.error(f"[MTPROTO] Stop error: {e}")
-            
-            try:
-                del _proxies[key]
-            except:
-                pass
-            
-            logging.info(f"[MTPROTO] Proxy {host}:{port} stopped")
-        
-        set_mtproto_enabled(False)
-        return True
+        logging.info(f"[MTPROTO] Proxy {host}:{port} stopped")
+    
+    set_mtproto_enabled(False)
+    return True
 
 
-def is_proxy_running(port=1080, host='127.0.0.1'):
+def is_mtproto_proxy_running(port=1080, host='127.0.0.1'):
     with _proxy_lock:
         key = (host, port)
         proxy = _proxies.get(key)
         
         if not proxy:
-            return _check_proxy_traffic(port)
+            return _check_mtproto_traffic(port)
         
         thread = proxy.get('thread')
         if not thread or not thread.is_alive():
             if proxy.get('running'):
                 logging.warning(f"[MTPROTO] Proxy {host}:{port} marked as running but thread dead")
-            return _check_proxy_traffic(port)
+            return _check_mtproto_traffic(port)
         
-        return _check_proxy_traffic(port)
+        return _check_mtproto_traffic(port)
 
 
-def _force_kill_port(port):
-    try:
-        for conn in psutil.net_connections(kind='inet'):
-            if conn.laddr and conn.laddr.port == port:
-                if conn.status == 'LISTENING' and conn.pid:
-                    try:
-                        proc = psutil.Process(conn.pid)
-                        proc.terminate()
-                        proc.wait(timeout=3)
-                        logging.info(f"[MTPROTO] Killed PID {conn.pid}")
-                        return True
-                    except:
-                        pass
-    except Exception as e:
-        logging.warning(f"[MTPROTO] Force kill error: {e}")
-    return False
-
-
-def get_active_proxies():
-    return []
-
-
-def start_all_proxies():
-    pass
-
-
-def stop_all_proxies():
-    with _proxy_lock:
-        for key in list(_proxies.keys()):
-            try:
-                _proxies[key]['stop_event'].set()
-                _proxies[key]['running'] = False
-            except Exception as e:
-                logging.error(f"[MTPROTO] Error stopping {key}: {e}")
-        _proxies.clear()
-    logging.info("[MTPROTO] All proxies stopped")
-
-
-def _stop_all_proxies():
-    stop_all_proxies()
-
-
-def _check_proxy_traffic(port):
+def _check_mtproto_traffic(port):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(0.5)
@@ -443,11 +387,11 @@ def _check_proxy_traffic(port):
                         return True
             return False
     except Exception as e:
-        logging.warning(f"[MTPROTO] _check_proxy_traffic error: {e}")
+        logging.warning(f"[MTPROTO] _check_mtproto_traffic error: {e}")
         return False
 
 
-def is_any_proxy_running():
+def is_mtproto_running():
     with _proxy_lock:
         return any(p.get('thread') and p['thread'].is_alive() for p in _proxies.values())
 
@@ -484,7 +428,7 @@ def disable_ipv6():
         result = subprocess.run([
             'reg', 'add',
             'HKLM\\SYSTEM\\CurrentControlSet\\Services\\Tcpip6\\Parameters',
-            '/v', 'DisabledComponents', '/t', 'REG_DWORD', '/d', '4294967295', '/f'
+            '/v', 'DisabledComponents', '/t', 'REG_DWORD',         '/d', '255', '/f'
         ], capture_output=True, shell=True)
         logging.info("[IPv6] Disabled via registry")
         return result.returncode == 0
@@ -505,3 +449,85 @@ def enable_ipv6():
     except Exception as e:
         logging.error(f"[IPv6] Error: {e}")
         return False
+
+
+def clear_discord_cache():
+    import shutil
+    msgs = []
+    try:
+        for proc in psutil.process_iter(['name']):
+            if proc.info['name'] and proc.info['name'].lower() == 'discord.exe':
+                proc.terminate()
+                proc.wait(timeout=5)
+                msgs.append("Discord.exe closed")
+                break
+    except Exception as e:
+        msgs.append(f"Failed to close Discord: {e}")
+
+    cache_dir = Path(os.environ.get('APPDATA', '')) / 'discord'
+    for folder in ['Cache', 'Code Cache', 'GPUCache']:
+        p = cache_dir / folder
+        if p.exists():
+            try:
+                shutil.rmtree(p)
+                msgs.append(f"Deleted {folder}")
+            except Exception as e:
+                msgs.append(f"Failed to delete {folder}: {e}")
+        else:
+            msgs.append(f"{folder} not found")
+    return " | ".join(msgs)
+
+
+GAME_FILTER_PATH = BASE_DIR / "zapret" / "utils" / "game_filter.enabled"
+IPSET_PATH = BASE_DIR / "zapret" / "lists" / "ipset-all.txt"
+
+
+def get_game_filter_mode():
+    if not GAME_FILTER_PATH.exists():
+        return "disabled"
+    mode = GAME_FILTER_PATH.read_text(encoding="utf-8").strip().lower()
+    return mode if mode in ("all", "tcp", "udp") else "disabled"
+
+
+def set_game_filter_mode(mode):
+    if mode == "disabled":
+        try:
+            GAME_FILTER_PATH.unlink()
+        except FileNotFoundError:
+            pass
+    else:
+        GAME_FILTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        GAME_FILTER_PATH.write_text(mode, encoding="utf-8")
+    
+    if get_game_filter_mode() != mode:
+        logging.error(f"[GameFilter] Verification failed: expected {mode}, got {get_game_filter_mode()}")
+        return False
+    return True
+
+
+def get_ipset_status():
+    if not IPSET_PATH.exists():
+        return "any"
+    text = IPSET_PATH.read_text(encoding="utf-8").strip()
+    if not text:
+        return "any"
+    if text == "203.0.113.113/32":
+        return "none"
+    return "loaded"
+
+
+def set_ipset_mode(mode):
+    IPSET_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if mode == "any":
+        IPSET_PATH.write_text("", encoding="utf-8")
+    elif mode == "none":
+        IPSET_PATH.write_text("203.0.113.113/32", encoding="utf-8")
+    elif mode == "loaded":
+        backup = IPSET_PATH.with_suffix(".txt.backup")
+        if backup.exists():
+            IPSET_PATH.write_text(backup.read_text(encoding="utf-8"), encoding="utf-8")
+    
+    if get_ipset_status() != mode:
+        logging.error(f"[IPSet] Verification failed: expected {mode}, got {get_ipset_status()}")
+        return False
+    return True

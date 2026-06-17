@@ -36,10 +36,10 @@ except ImportError:
     from proxy.utils import *
     from proxy.stats import stats
     from proxy.config import proxy_config, parse_dc_ip_list, start_cfproxy_domain_refresh, CFPROXY_DEFAULT_DOMAINS
-    from src.proxy.bridge import MsgSplitter, CryptoCtx, do_fallback, bridge_ws_reencrypt
-    from src.proxy.raw_websocket import RawWebSocket, WsHandshakeError, set_sock_opts
-    from src.proxy.fake_tls import proxy_to_masking_domain, verify_client_hello, build_server_hello, FakeTlsStream, TLS_RECORD_HANDSHAKE
-    from src.proxy.balancer import balancer
+    from proxy.bridge import MsgSplitter, CryptoCtx, do_fallback, bridge_ws_reencrypt
+    from proxy.raw_websocket import RawWebSocket, WsHandshakeError, set_sock_opts
+    from proxy.fake_tls import proxy_to_masking_domain, verify_client_hello, build_server_hello, FakeTlsStream, TLS_RECORD_HANDSHAKE
+    from proxy.balancer import balancer
 
 
 log = logging.getLogger('tg-mtproto-proxy')
@@ -557,19 +557,6 @@ _server_stop_event = None
 _client_tasks: Set[asyncio.Task] = set()
 
 
-def _cancel_all_tasks():
-    """Cancel all pending client tasks gracefully."""
-    for task in list(_client_tasks):
-        if not task.done():
-            task.cancel()
-    # Wait for tasks to be cancelled
-    if _client_tasks:
-        asyncio.get_event_loop().run_until_complete(
-            asyncio.wait(_client_tasks, timeout=2.0)
-        )
-    _client_tasks.clear()
-
-
 async def _run(stop_event: Optional[asyncio.Event] = None):
     global _server_instance, _server_stop_event
     _server_stop_event = stop_event
@@ -704,7 +691,7 @@ async def _run(stop_event: Optional[asyncio.Event] = None):
 
 
 def run_proxy(stop_event: Optional[asyncio.Event] = None):
-    asyncio.run(_run(stop_event,))
+    asyncio.run(_run(stop_event))
 
 
 def main():

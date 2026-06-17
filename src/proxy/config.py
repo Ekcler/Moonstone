@@ -95,13 +95,16 @@ def refresh_cfproxy_domains() -> None:
 
 
 _refresh_stop: threading.Event = threading.Event()
+_refresh_epoch: int = 0
 
 
 def start_cfproxy_domain_refresh() -> None:
-    global _refresh_stop
+    global _refresh_stop, _refresh_epoch
     _refresh_stop.set()
+    _refresh_epoch += 1
     _refresh_stop = threading.Event()
     stop = _refresh_stop
+    epoch = _refresh_epoch
     
     # Инициализируем balancer дефолтными доменами
     try:
@@ -113,6 +116,8 @@ def start_cfproxy_domain_refresh() -> None:
     def _loop():
         refresh_cfproxy_domains()
         while not stop.wait(timeout=3600):
+            if _refresh_epoch != epoch:
+                break
             refresh_cfproxy_domains()
 
     threading.Thread(target=_loop, daemon=True, name='cfproxy-domains-refresh').start()

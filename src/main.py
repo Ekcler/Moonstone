@@ -5,7 +5,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-6
+
 try:
     import win32api
     import win32con
@@ -34,6 +34,15 @@ try:
 except ImportError:
     import admin, ui, config, service, tools, state, autostart
 
+def _set_defaults():
+    app_state = state.load_state()
+    if app_state.get("game_filter_mode") is None:
+        tools.set_game_filter_mode("all")
+        state.save_state(game_filter_mode="all")
+    if app_state.get("ipset_mode") is None:
+        tools.set_ipset_mode("any")
+        state.save_state(ipset_mode="any")
+
 try:
     import tg_ws_proxy 
 except ImportError:
@@ -49,41 +58,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     encoding='utf-8'
 )
-
-def start_proxy_thread():
-    app_state = state.load_state()
-    auto_switch = app_state.get("auto_switch_enabled", False)
-    
-    if auto_switch:
-        proxies = app_state.get("proxies", [])
-        if not proxies or not isinstance(proxies, list) or len(proxies) == 0:
-            proxies = state.DEFAULT_PROXIES
-        enabled_proxies = [p for p in proxies if p.get("enabled", True)]
-        
-        if len(enabled_proxies) >= 2:
-            for proxy in enabled_proxies:
-                tools.start_socks5_proxy(port=proxy['port'], host=proxy['host'])
-            
-            logging.info(f"[SOCKS5] Multi-proxy started: {len(enabled_proxies)} proxies, auto-switch enabled")
-            return True
-        else:
-            logging.info("[SOCKS5] Not enough enabled proxies for auto-switch")
-    
-    proxies_list = app_state.get("proxies", [])
-    
-    # Проверка на пустой массив
-    if not proxies_list or not isinstance(proxies_list, list) or len(proxies_list) == 0:
-        proxies_list = state.DEFAULT_PROXIES
-    
-    first_proxy = proxies_list[0]
-    port = first_proxy.get("port", 1443)
-    host = first_proxy.get("host", "127.0.0.1")
-    
-    return tools.start_socks5_proxy(port=port, host=host)
-
-
-def stop_proxy_thread():
-    tools._stop_all_proxies()
 
 _current_bat = None
 _restart_func = None
@@ -103,32 +77,18 @@ def on_wake():
             logging.error(f"Ошибка перезапуска службы: {e}")
     
     app_state = state.load_state()
-    auto_switch = app_state.get("auto_switch_enabled", False)
-    
-    if app_state.get("mtproto_enabled", False) or auto_switch:
+    if app_state.get("mtproto_enabled", False):
         time.sleep(3)
         try:
-            if auto_switch:
-                proxies = app_state.get("proxies", [])
-                if not proxies or not isinstance(proxies, list) or len(proxies) == 0:
-                    proxies = state.DEFAULT_PROXIES
-                enabled_proxies = [p for p in proxies if p.get("enabled", True)]
-                
-                for p in proxies:
-                    tools.stop_socks5_proxy(port=p['port'], host=p['host'])
-                time.sleep(1)
-                
-                for proxy in enabled_proxies:
-                    tools.start_socks5_proxy(port=proxy['port'], host=proxy['host'])
-                
-                logging.info(f"Auto-switch перезапущен ({len(enabled_proxies)} proxies)")
-            else:
-                stop_proxy_thread()
-                time.sleep(1)
-                start_proxy_thread()
-                logging.info("Прокси перезапущен после пробуждения")
+            port = app_state.get("mtproto_port", 1443)
+            host = app_state.get("mtproto_host", "127.0.0.1")
+            secret = app_state.get("mtproto_secret", None)
+            tools.stop_mtproto_proxy(port=port, host=host)
+            time.sleep(1)
+            tools.start_mtproto_proxy(port=port, host=host, secret=secret)
+            logging.info("MTProto прокси перезапущен после пробуждения")
         except Exception as e:
-            logging.error(f"Ошибка перезапуска прокси: {e}")
+            logging.error(f"Ошибка перезапуска MTProto прокси: {e}")
 
 def register_sleep_handler(restart_func, current_bat):
     global _current_bat, _restart_func
@@ -176,13 +136,15 @@ def _main_inner():
     
     autostart.fix_autostart_path()
     
+    _set_defaults()
+    
     app_state = state.load_state()
     if app_state.get("mtproto_enabled", False):
         logging.info("[MTPROTO] Восстановление прокси после запуска")
         port = app_state.get("mtproto_port", 1443)
         host = app_state.get("mtproto_host", "127.0.0.1")
         secret = app_state.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d")
-        tools.start_socks5_proxy(port=port, host=host, secret=secret)
+        tools.start_mtproto_proxy(port=port, host=host, secret=secret)
     
     bat_files = [
         f for f in config.BAT_DIR.glob("*.bat") 
@@ -191,7 +153,10 @@ def _main_inner():
     
     exit_code = ui.create_tray_app(bat_files, register_sleep_handler)
     
-    stop_proxy_thread()
+    app_state = state.load_state()
+    port = app_state.get("mtproto_port", 1443)
+    host = app_state.get("mtproto_host", "127.0.0.1")
+    tools.stop_mtproto_proxy(port=port, host=host)
     
     sys.exit(exit_code)
 
