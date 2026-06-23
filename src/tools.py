@@ -323,7 +323,6 @@ def start_mtproto_proxy(port=1080, host='127.0.0.1', secret=None):
             'running': True
         }
     
-    set_mtproto_enabled(True)
     logging.info(f"[MTPROTO] Proxy start: {host}:{port}")
     return True
 
@@ -352,7 +351,6 @@ def stop_mtproto_proxy(port, host='127.0.0.1'):
         
         logging.info(f"[MTPROTO] Proxy {host}:{port} stopped")
     
-    set_mtproto_enabled(False)
     return True
 
 
