@@ -122,7 +122,6 @@ crl.roblox.com
 status.roblox.com
 setup.roblox.com
 update.roblox.com
-s3.amazonaws.com
 stun.l.google.com
 stun1.l.google.com
 stun2.l.google.com
@@ -244,12 +243,7 @@ secure.llnwd.net
 roblox.qq.com
 roblox.cn
 
-epicgames.com
 helpshift.com
-ol.epicgames.com
-rocketleague.com
-psyonix.com
-epicgames.dev
 live-services.dot.net
 openai.com
 chatgpt.com
