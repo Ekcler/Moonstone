@@ -1,7 +1,9 @@
 """Windows service management functions for Sakura Flow."""
+import os
 import subprocess
 import re
 import sys
+import time
 import logging
 from pathlib import Path
 
@@ -9,6 +11,46 @@ try:
     from .config import SERVICE_NAME, BAT_DIR, CONSOLE_ENCODING
 except ImportError:
     from src.config import SERVICE_NAME, BAT_DIR, CONSOLE_ENCODING
+
+
+BAT_NAME = "_zapret_service.bat"
+
+
+def _write_bat(executable, args):
+    bat_path = BAT_DIR / BAT_NAME
+    bat_path.parent.mkdir(parents=True, exist_ok=True)
+    bin_dir = Path(executable).parent
+    bat_content = f'@cd /d "{bin_dir}" && "{executable}" {args}'
+    bat_path.write_text(bat_content, encoding="utf-8")
+    logging.info(f"Written service bat: {bat_path}")
+    return bat_path
+
+
+def _wait_service_stopped(timeout=8):
+    start = time.time()
+    while time.time() - start < timeout:
+        result = run_cmd(f'sc.exe query "{SERVICE_NAME}"')
+        if result and "STOPPED" in result.stdout:
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def restart_service(batch_path, display_version):
+    if service_exists():
+        stop_service()
+        _wait_service_stopped()
+        delete_service()
+    create_service(batch_path, display_version)
+    start_service(batch_path, display_version)
+
+    for _ in range(10):
+        time.sleep(0.5)
+        result = run_cmd(f'sc.exe query "{SERVICE_NAME}"')
+        if result and "RUNNING" in result.stdout:
+            return True
+    logging.error("Service failed to reach RUNNING state")
+    return False
 
 
 def run_cmd(cmd):
@@ -91,9 +133,9 @@ def parse_bat_file(batch_path):
 
 def create_service(batch_path, display_version):
     executable, args = parse_bat_file(batch_path)
-    bin_dir = Path(executable).parent
+    bat_path = _write_bat(executable, args)
     service_display = f"Sakura Flow version[{display_version}]"
-    bin_path_value = f'cmd.exe /c "cd /d "{bin_dir}" && "{executable}" {args}"'
+    bin_path_value = f'cmd.exe /c "{bat_path}"'
 
     cmd_args = [
         'sc.exe', 'create', SERVICE_NAME, 'start=', 'auto',

@@ -98,7 +98,8 @@ class NetworkToolsWindow(QWidget):
         app_state = state.load_state()
         self.tg_port_input.setText(str(app_state.get("mtproto_port", 1443)))
         self.tg_host_input.setText(app_state.get("mtproto_host", "127.0.0.1"))
-        self.tg_secret_input.setText(app_state.get("mtproto_secret", "efac191ac9b83e4c0c8c4e5e7c6a6b6d"))
+        secret_init = app_state.get("mtproto_secret") or tools.generate_secret()
+        self.tg_secret_input.setText(secret_init)
         
         if app_state.get("mtproto_enabled", False):
             self._mtproto_running = True
@@ -218,16 +219,16 @@ class NetworkToolsWindow(QWidget):
         host_port_layout.addWidget(self.tg_host_input)
         host_port_layout.addWidget(QLabel("Port:"))
         self.tg_port_input = QLineEdit()
-        self.tg_port_input.setPlaceholderText("1080")
-        self.tg_port_input.setText("1080")
+        self.tg_port_input.setPlaceholderText("1443")
+        self.tg_port_input.setText("1443")
         host_port_layout.addWidget(self.tg_port_input)
         layout.addLayout(host_port_layout)
 
         secret_layout = QHBoxLayout()
         secret_layout.addWidget(QLabel("Secret:"))
         self.tg_secret_input = QLineEdit()
-        self.tg_secret_input.setPlaceholderText("efac191ac9b83e4c0c8c4e5e7c6a6b6d")
-        self.tg_secret_input.setText("efac191ac9b83e4c0c8c4e5e7c6a6b6d")
+        self.tg_secret_input.setPlaceholderText(tools.generate_secret())
+        self.tg_secret_input.setText(tools.generate_secret())
         secret_layout.addWidget(self.tg_secret_input)
         self.copy_secret_btn = QPushButton("Copy")
         self.copy_secret_btn.setFixedWidth(60)
@@ -375,7 +376,7 @@ class NetworkToolsWindow(QWidget):
     def copy_secret(self):
         secret = self.tg_secret_input.text().strip()
         QApplication.clipboard().setText(secret)
-        self.log_append(f"Secret copied: {secret}")
+        self.log_append("Secret copied to clipboard")
 
     def toggle_mtproto_proxy(self):
         try:
@@ -384,7 +385,7 @@ class NetworkToolsWindow(QWidget):
             self.log_append(f"Invalid port: {self.tg_port_input.text().strip()}", "red")
             return
         host = self.tg_host_input.text().strip() or "127.0.0.1"
-        secret = self.tg_secret_input.text().strip() or "efac191ac9b83e4c0c8c4e5e7c6a6b6d"
+        secret = self.tg_secret_input.text().strip() or tools.generate_secret()
         
         self.log_append(f"[DEBUG] toggle_mtproto: {host}:{port}")
         
@@ -556,18 +557,26 @@ def create_tray_app(bat_files, register_sleep_handler=None):
         QMenu::separator { height: 1px; background: #3d1b28; margin: 4px; }
     """)
 
+    if register_sleep_handler:
+        app_state = state.load_state()
+        current_bat = app_state.get("last_bat")
+        bat_path = None
+        for b in bat_files:
+            if b.stem == current_bat:
+                bat_path = b
+                break
+        def restart_for_wake():
+            if bat_path:
+                service.restart_service(bat_path, bat_path.stem)
+        register_sleep_handler(restart_for_wake, current_bat)
+
     def quick_restart():
         app_state = state.load_state()
         if app_state["last_bat"]:
             for b in bat_files:
                 if b.stem == app_state["last_bat"]:
-                    threading.Thread(target=lambda: service.start_service(b, b.stem), daemon=True).start()
+                    threading.Thread(target=lambda b=b: service.start_service(b, b.stem), daemon=True).start()
                     break
-
-    if register_sleep_handler:
-        app_state = state.load_state()
-        current_bat = app_state.get("last_bat")
-        register_sleep_handler(quick_restart, current_bat)
 
     def toggle_strategy(btn):
         """Toggle strategy on/off."""
@@ -620,6 +629,14 @@ def create_tray_app(bat_files, register_sleep_handler=None):
     autostart_action.setChecked(autostart.is_autostart_enabled())
     autostart_action.toggled.connect(lambda chk: autostart.enable_autostart() if chk else autostart.disable_autostart())
 
+    menu.addSeparator()
+
+    def app_restart():
+        subprocess.Popen([sys.executable] + sys.argv)
+        service.stop_service()
+        QApplication.quit()
+
+    menu.addAction("  🔁 Restart", app_restart)
     menu.addSeparator()
     menu.addAction("  🚪 Exit", lambda: (service.stop_service(), QApplication.quit()))
 

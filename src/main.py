@@ -70,7 +70,7 @@ def on_wake():
         time.sleep(2)
         try:
             service.stop_service()
-            time.sleep(1)
+            service.delete_service()
             _restart_func()
             logging.info("Служба перезапущена после пробуждения")
         except Exception as e:
@@ -153,7 +153,7 @@ def _main_inner():
             logging.warning("[MTPROTO] Не удалось восстановить прокси")
 
     last_bat = app_state.get("last_bat")
-    if last_bat and not tools.is_winws_running():
+    if last_bat:
         logging.info(f"[STRATEGY] Восстановление стратегии: {last_bat}")
         for b in bat_files:
             if b.stem == last_bat:
